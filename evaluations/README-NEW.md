@@ -538,31 +538,91 @@ When you run the evaluation pipeline, you'll see output organized by steps:
    [Output from evaluation...]
 ✅ Completed: deep_eval.py (Duration: 95.12s)
 
-🏁 Evaluation Pipeline Complete (Total Duration: 320.89s)
+🏁 Evaluation Pipeline Complete (Total Duration: 199.75s)
 ```
 
-After evaluation completes, you'll see a comprehensive token usage summary:
+After the pipeline completes, you'll first see the evaluation results summary:
 
 ```
+================================================================================
+🏆 DEEPEVAL CONVERSATION EVALUATION RESULTS
+================================================================================
+📊 OVERVIEW:
+   • Total conversations evaluated: 3
+   • Successful evaluations: 3
+   • Failed evaluations: 0
+   • Success rate: 100.0%
+   • Overall metric pass rate: 39/39 (100.0%)
+   • Individual metric performance:
+     ✅ Turn Relevancy: 3/3 (100.0%)
+     ✅ Role Adherence: 3/3 (100.0%)
+     ✅ Conversation Completeness: 3/3 (100.0%)
+     ✅ Information Gathering [Conversational GEval]: 3/3 (100.0%)
+     ✅ Policy Compliance [Conversational GEval]: 3/3 (100.0%)
+     ✅ Option Presentation [Conversational GEval]: 3/3 (100.0%)
+     ✅ Process Completion [Conversational GEval]: 3/3 (100.0%)
+     ✅ User Experience [Conversational GEval]: 3/3 (100.0%)
+     ✅ Flow termination [Conversational GEval]: 3/3 (100.0%)
+     ✅ Ticket number validation [Conversational GEval]: 3/3 (100.0%)
+     ✅ Correct eligibility validation [Conversational GEval]: 3/3 (100.0%)
+     ✅ No errors reported by agent [Conversational GEval]: 3/3 (100.0%)
+     ✅ Correct laptop options for user location [Conversational GEval]: 3/3 (100.0%)
+   • Status: ✅ ALL EVALUATIONS PASSED
+
+──────────────────────────────────────────────────
+
+🏁 CONVERSATION SUMMARY:
+   ✅ success-flow-1.json: 13/13 metrics passed
+   ✅ known_good_flow.json: 13/13 metrics passed
+   ✅ generated_flow_1_20251010_171328.json: 13/13 metrics passed
+
+🎉 OVERALL RESULT: ALL CONVERSATIONS PASSED
+================================================================================
+```
+
+Following the evaluation results, you'll see a comprehensive token usage summary:
+
+```
+================================================================================
 === COMPLETE PIPELINE TOKEN USAGE SUMMARY ===
 ================================================================================
 
 📱 App Tokens (from chat agents):
-  Input tokens: 45,230
-  Output tokens: 12,890
-  Total tokens: 58,120
-  API calls: 156
+  Input tokens: 27,053
+  Output tokens: 2,290
+  Total tokens: 29,343
+  API calls: 12
 
 🔬 Evaluation Tokens (from evaluation LLM calls):
-  Input tokens: 89,450
-  Output tokens: 8,340
-  Total tokens: 97,790
-  API calls: 234
+  Input tokens: 104,126
+  Output tokens: 4,388
+  Total tokens: 108,514
+  API calls: 73
 
 📊 Combined Pipeline Statistics:
-  Total LLM calls: 390
-  Total tokens used: 155,910
+  Total LLM calls: 85
+  Total input tokens: 131,179
+  Total output tokens: 6,678
+  Total tokens used: 137,857
+  Average per call: 1543.3 input, 78.6 output, 1621.8 total
+
+📈 Maximum Tokens by Script Type:
+  Run Conversations:
+    Total calls: 6
+    Total tokens: 14,738
+  Generator:
+    Total calls: 15
+    Total tokens: 25,110
+  Deep Eval:
+    Total calls: 64
+    Total tokens: 98,009
+================================================================================
 ```
+
+These summaries show:
+- **Evaluation results**: Overall pass/fail rates and per-metric performance
+- **Token usage**: Detailed breakdown of LLM API usage for cost tracking
+- **Script breakdown**: Token usage by each pipeline component
 
 **Where to Find Results**
 
@@ -590,10 +650,12 @@ results/
 
 **Examining Results**
 
+If there are failures you may want to look at the details for a specific
+conversation. The following files are available for you to do that:
+
 1. **Conversation transcripts** (`results/conversation_results/`):
    - View actual conversations between users and the agent
    - See user inputs and agent responses
-   - Check metadata like user IDs and timestamps
 
 2. **Evaluation reports** (`results/deep_eval_results/`):
    - Individual JSON files show metric-by-metric evaluation
