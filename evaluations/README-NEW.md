@@ -1016,9 +1016,6 @@ The script supports several options to customize its behavior:
 # Use a different test script in OpenShift
 python run_conversations.py --test-script chat-responses-request-mgr.py
 
-# Use alternative conversation templates (no-employee-id subdirectory)
-python run_conversations.py --no-employee-id
-
 # Reset conversation state before each test
 python run_conversations.py --reset-conversation
 
