@@ -99,47 +99,24 @@ The typical evaluation workflow follows this sequence:
 
 ```mermaid
 flowchart TD
-    subgraph inputs[Input Sources]
-        A[Pre-defined Templates<br/>conversations_config/conversations/]
-        B[AI Conversation Simulator<br/>DeepEval]
-    end
+    A[Pre-defined Templates<br/>conversations_config/]
+    B[AI Simulator<br/>DeepEval]
+    C[run_conversations.py]
+    D[generator.py]
+    E[Deployed Agent<br/>OpenShift]
+    F[Conversation Results<br/>results/conversation_results/]
+    G[deep_eval.py<br/>Metrics Engine]
+    H[Evaluation Results<br/>results/deep_eval_results/]
+    I[Context Files<br/>conversations_config/default_context/]
 
-    subgraph execution[Live Agent Testing]
-        C[run_conversations.py<br/>Pre-defined Inputs]
-        D[generator.py<br/>AI-Generated Inputs]
-    end
-
-    subgraph agent[Deployed Agent]
-        E[Self-Service Agent<br/>OpenShift Pod]
-    end
-
-    subgraph results[Conversation Results]
-        F[results/conversation_results/<br/>• success-flow-1.json<br/>• generated_flow_*.json]
-    end
-
-    subgraph evaluation[Evaluation]
-        G[deep_eval.py<br/>Metrics Engine]
-    end
-
-    subgraph output[Evaluation Results]
-        H[results/deep_eval_results/<br/>• deepeval_*.json<br/>• deepeval_all_results.json]
-    end
-
-    subgraph context[Context & Configuration]
-        I[conversations_config/default_context/<br/>• Laptop offerings by region<br/>• Refresh policies<br/>• Employee data]
-    end
-
-    A -->|Load templates| C
-    B -->|Generate user inputs| D
-    C -->|Send user messages| E
-    D -->|Send user messages| E
-    E -->|Agent responses| C
-    E -->|Agent responses| D
-    C -->|Save conversations| F
-    D -->|Save conversations| F
-    F -->|Load conversations| G
-    I -.->|Provide context| G
-    G -->|Evaluate| H
+    A -->|Load| C
+    B -->|Generate| D
+    C & D -->|Request| E
+    E -->|Response| C & D
+    C & D -->|Save| F
+    F -->|Load| G
+    I -.->|Context| G
+    G -->|Report| H
 
     classDef inputStyle fill:#e1f5ff,stroke:#0288d1
     classDef execStyle fill:#fff3e0,stroke:#f57c00
@@ -266,14 +243,6 @@ Pre-defined conversations are hand-crafted test cases that validate critical use
 - **Deterministic**: Produce repeatable results for comparison across runs
 - **Human-verified**: Created by developers/QA who understand business requirements
 
-**Use Cases:**
-
-- Testing critical happy-path flows (successful laptop refresh request)
-- Validating edge cases (user not eligible, missing information)
-- Regression testing (ensure existing functionality still works)
-- Acceptance testing (verify specific features before release)
-- Baseline performance (track agent quality over time)
-
 **Example Structure:**
 
 ```json
@@ -309,14 +278,6 @@ Generated conversations are synthetic test cases created automatically by the `g
 - **Realistic variation**: Different user behaviors, phrasings, and interaction patterns
 - **Diverse scenarios**: Covers scenarios that manual testers might not think of
 - **Timestamped**: Each generation creates unique files with timestamps
-
-**Use Cases:**
-
-- Broad test coverage without manual effort
-- Discovering edge cases and unexpected interactions
-- Load testing (generate many conversations quickly)
-- Exploring agent behavior across diverse scenarios
-- Complement pre-defined tests with realistic variations
 
 **How It Works:**
 
@@ -355,28 +316,7 @@ Known bad conversations are test cases that are expected to fail evaluation metr
 **Characteristics:**
 
 - **Regression test suite**: Ensures previously identified issues are detected
-- **Metric validation**: Confirms that evaluation metrics work correctly
-- **Quality assurance**: Tests the testing system itself
 - **Expected failures**: Pass when metrics correctly identify problems
-- **Documentation**: Serves as examples of what NOT to do
-
-**Use Cases:**
-
-- Verify that evaluation metrics detect known problems
-- Prevent regression of previously fixed bugs
-- Validate new metrics against known failure cases
-- Train team members on problematic conversation patterns
-- Quality check the evaluation framework itself
-
-**Example Scenarios:**
-
-Known bad conversations might include:
-- Agent provides wrong ticket number format (e.g., INC instead of REQ)
-- Agent states incorrect refresh policy (wrong number of years)
-- Agent shows laptop options for wrong location
-- Agent reports system errors or failures
-- Conversation ends without proper completion
-- Agent doesn't gather required information
 
 **Testing Known Bad Conversations:**
 
