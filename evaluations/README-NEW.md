@@ -682,3 +682,563 @@ cat results/conversation_results/success-flow-1.json | jq .
 # Check token usage summary
 cat results/token_usage/pipeline_aggregated_*.json | jq '.summary'
 ```
+
+## 3. Creating Conversation Templates
+
+Conversation templates are hand-crafted test cases that define specific user flows to test your agent. This section explains how to create and organize conversation templates for systematic testing.
+
+### 3.1 Template Format
+
+Conversation templates are JSON files with a simple, standardized structure that defines metadata and the conversation flow.
+
+**Basic Structure**
+
+Every conversation template consists of two main sections:
+
+```json
+{
+    "metadata": {
+        "authoritative_user_id": "alice.johnson@company.com",
+        "description": "Brief description of what this conversation tests"
+    },
+    "conversation": [
+        {"role": "user", "content": "User's first message"},
+        {"role": "user", "content": "User's second message"},
+        {"role": "user", "content": "User's third message"}
+    ]
+}
+```
+
+**Template Components**
+
+1. **metadata** (object):
+   - `authoritative_user_id` (required): The user identity to use for this conversation
+     - Must be an email address (e.g., `alice.johnson@company.com`)
+     - Must match an entry in the `authoritative_user_ids` file
+   - `description` (required): Human-readable description of the test scenario
+     - Explains what user flow or edge case this template tests
+     - Useful for understanding test failures
+
+2. **conversation** (array):
+   - Array of conversation turns
+   - Each turn is an object with:
+     - `role`: Always `"user"` (only user messages are predefined)
+     - `content`: The exact text the user will send
+   - Agent responses are captured dynamically during execution
+   - Order matters - messages are sent sequentially
+
+**Field Requirements**
+
+```json
+{
+    "metadata": {
+        "authoritative_user_id": "required - string - user identity",
+        "description": "required - string - test scenario description"
+    },
+    "conversation": [
+        {
+            "role": "required - always 'user'",
+            "content": "required - string - user message text"
+        }
+    ]
+}
+```
+
+### 3.2 Predefined Conversations
+
+Predefined conversations are stored in specific directories and follow naming conventions that make them easy to identify and manage.
+
+**Location and Directory Structure**
+
+```
+evaluations/
+└── conversations_config/
+    └── conversations/
+        ├── success-flow-1.json             # Standard flow
+        ├── edge-case-ineligible.json       # Edge case
+        └── error-handling.json             # Error scenario
+```
+
+**Creating a New Template**
+
+To create a new conversation template:
+
+1. **Choose a descriptive filename**:
+   ```bash
+   # Good names describe the scenario being tested
+   success-flow-1.json
+   laptop-refresh-eligible-user.json
+   ineligible-user-too-recent.json
+   ```
+
+2. **Create the JSON file** in `conversations_config/conversations/`:
+   ```json
+   {
+       "metadata": {
+           "authoritative_user_id": "john.doe@company.com",
+           "description": "User requests laptop refresh and completes full flow"
+       },
+       "conversation": [
+           {"role": "user", "content": "I need a new laptop"},
+           {"role": "user", "content": "1005"},
+           {"role": "user", "content": "show me the options"},
+           {"role": "user", "content": "2"},
+           {"role": "user", "content": "yes, proceed"}
+       ]
+   }
+   ```
+
+3. **Ensure the user ID exists** in `authoritative_user_ids`
+
+The MCP servers used to look up employee laptop information only
+have information for the users specified in the `authoritative_user_ids` file
+so all conversations must specify one of these users
+
+### 3.3 User IDs and Authentication
+
+The evaluation framework uses authoritative user IDs to simulate different users during testing. These IDs are managed through a simple text file.
+
+**Authoritative User IDs File**
+
+The `authoritative_user_ids` file contains a list of valid user email addresses that can be used in conversation templates:
+
+**Location**: `conversations_config/authoritative_user_ids`
+
+**Format**: Simple text file with one email address per line
+
+```
+alice.johnson@company.com
+john.doe@company.com
+maria.garcia@company.com
+oliver.smith@company.com
+yuki.tanaka@company.com
+```
+
+**How User IDs Are Selected**
+
+When running conversations, the framework:
+
+1. **Reads** the `authoritative_user_ids` file
+2. **Matches** the `authoritative_user_id` from the template metadata
+3. **Uses** that identity when communicating with the agent
+
+**Example Template**
+
+```json
+{
+    "metadata": {
+        "authoritative_user_id": "alice.johnson@company.com",
+        "description": "User requests laptop refresh"
+    },
+    "conversation": [
+        {"role": "user", "content": "I need a new laptop"}
+    ]
+}
+```
+
+### 3.4 Known Bad Conversations
+
+Known bad conversations are test cases that represent problematic agent behaviors. These conversations are expected to fail evaluation metrics and serve as regression tests to ensure your evaluation system correctly identifies issues.
+
+**Location and Directory Structure**
+
+Known bad conversations are stored separately from regular test conversations:
+
+```
+evaluations/
+└── results/
+    └── known_bad_conversation_results/
+        ├── wrong-ticket-format.json
+        ├── incomplete-flow.json
+        ├── policy-violation.json
+        └── error-not-handled.json
+```
+
+**Creating a Known Bad Conversation**
+
+When you discover or want to document a problematic agent behavior:
+
+1. **Create the conversation file** in `results/known_bad_conversation_results/`
+2. **Use descriptive filenames** that indicate what's wrong (e.g., `wrong-ticket-format.json`)
+3. **Document the issue** in the metadata description
+4. **Include the problematic behavior** in the conversation turns
+
+**Example: Wrong Ticket Format**
+
+```json
+{
+    "metadata": {
+        "authoritative_user_id": "test.user@company.com",
+        "description": "Agent returns wrong ticket format - ticket should start with REQ not INC"
+    },
+    "conversation": [
+        {"role": "user", "content": "I need a new laptop"},
+        {"role": "assistant", "content": "I can help you with that request."},
+        {"role": "user", "content": "yes, proceed"},
+        {"role": "assistant", "content": "I've created ticket INC0123456 for you"},
+        {"role": "assistant", "content": "Is there anything else I can help you with?"}
+    ]
+}
+```
+
+This conversation should fail the "Ticket number validation" metric because the ticket number starts with "INC" instead of "REQ".
+
+**Testing Known Bad Conversations**
+
+To verify your evaluation metrics correctly identify problems, use the `--check` flag:
+
+```bash
+# Run evaluation on known bad conversations
+python evaluate.py --check
+```
+
+**Expected Behavior:**
+
+When you run `--check`, the evaluation system should:
+
+1. **Process** all conversation files in `results/known_bad_conversation_results/`
+2. **Apply** all evaluation metrics to each conversation
+3. **Identify** the problematic behaviors (metrics should fail)
+4. **Report** which metrics detected issues
+5. **Exit** with appropriate exit code
+
+**Understanding Exit Codes:**
+
+- **Exit code 0**: Known bad conversations failed as expected ✅ (GOOD - metrics are working)
+- **Exit code 1**: Known bad conversations passed unexpectedly ❌ (BAD - metrics aren't detecting problems)
+
+**Example Check Output:**
+
+```bash
+$ python evaluate.py --check
+
+🔍 Starting Check of Known Bad Conversations
+================================================================================
+📁 Found 9 known bad conversation files to check
+📊 Running deepeval on known bad conversations...
+
+============================================================
+RESULTS FOR: no-ticket-number.json
+============================================================
+📊 METRIC BREAKDOWN:
+   ✅ PASS Turn Relevancy: 1.000 (threshold: 0.8)
+   ✅ PASS Role Adherence: 1.000 (threshold: 0.5)
+   ✅ PASS Conversation Completeness: 1.000 (threshold: 0.8)
+   ...
+   ❌ FAIL Ticket number validation [Conversational GEval]: 0.000 (threshold: 1.0)
+      Reason: The conversation does not mention the ticket number, so it's impossible to verify...
+
+   📈 PASS RATE: 12/13 (92%)
+
+================================================================================
+🔍 KNOWN BAD CONVERSATIONS CHECK RESULTS
+================================================================================
+📊 OVERVIEW:
+   • Total known bad conversations: 9
+   • Successfully evaluated: 9
+   • LLM evaluation failures: 0
+   • Overall metric pass rate: 97/126 (77.0%)
+
+──────────────────────────────────────────────────
+
+🏁 CONVERSATION RESULTS:
+   ⚠️ missing-employee-id-prompt.json: 1/14 metrics failed (as expected: False)
+      Failed metrics:
+        • Employeed id requested [Conversational GEval] (score: 0.000) - ...
+   ⚠️ incomplete.json: 4/14 metrics failed (as expected: False)
+      Failed metrics:
+        • Turn Relevancy (score: 0.750) - ...
+        • Flow termination [Conversational GEval] (score: 0.000) - ...
+   ❌ allowed_invalid_user-laptop-selection.json: 11/14 metrics failed (as expected: True)
+      Failed metrics:
+        • Turn Relevancy (score: 0.667) - ...
+        • Role Adherence (score: 0.333) - ...
+        [9 more failed metrics...]
+
+──────────────────────────────────────────────────
+
+📊 CONVERSATION SUMMARY:
+   • Total conversations: 9
+   • Passing conversations: 0
+   • Failing conversations: 9
+
+❌ FAILING CONVERSATIONS:
+   • missing-employee-id-prompt.json: 1/14 metrics failed (7.1%)
+   • not-all-laptop-options.json: 1/14 metrics failed (7.1%)
+   • no-ticket-number.json: 2/14 metrics failed (14.3%)
+   • incomplete.json: 4/14 metrics failed (28.6%)
+   • wrong-selection.json: 6/14 metrics failed (42.9%)
+   • allowed_invalid_user-laptop-selection.json: 11/14 metrics failed (78.6%)
+
+🎉 OVERALL RESULT: 9/9 KNOWN BAD CONVERSATIONS FAILED AS EXPECTED
+```
+
+**Workflow for Adding Known Bad Conversations**
+
+When you find a problematic conversation during testing:
+
+1. **Copy the conversation file** from `results/conversation_results/` to `results/known_bad_conversation_results/`
+2. **Rename the file** to describe the issue (e.g., `policy-violation-ineligible-user.json`)
+3. **Update the description** in metadata to document what's wrong
+4. **Run the check**:
+   ```bash
+   python evaluate.py --check
+   ```
+5. **Verify metrics detect the issue** - at least one metric should fail
+6. **Commit to version control** to prevent regression
+
+## 4. Running Conversations
+
+The `run_conversations.py` script executes pre-defined conversation templates against your deployed agent. This section explains how to use the script, configure its behavior, and understand the results it produces.
+
+### 4.1 Using run_conversations.py
+
+The `run_conversations.py` script is the first step in the evaluation pipeline. It takes hand-crafted conversation templates and executes them against your live agent deployment in OpenShift.
+
+**Basic Usage**
+
+```bash
+# Run with default settings
+python run_conversations.py
+
+# This will:
+# 1. Load all templates from conversations_config/conversations/
+# 2. Execute each conversation against the deployed agent
+# 3. Save results to results/conversation_results/
+# 4. Track and report token usage
+```
+
+**Command-Line Options**
+
+The script supports several options to customize its behavior:
+
+```bash
+# Use a different test script in OpenShift
+python run_conversations.py --test-script chat-responses-request-mgr.py
+
+# Use alternative conversation templates (no-employee-id subdirectory)
+python run_conversations.py --no-employee-id
+
+# Reset conversation state before each test
+python run_conversations.py --reset-conversation
+
+# Combine multiple options
+python run_conversations.py --test-script my_agent.py --reset-conversation
+```
+
+**Option Details**
+
+- `--test-script <name>`: Specifies which Python script to execute in the OpenShift pod
+  - Default: `chat.py`
+  - The script must be available in the `/app/test/` directory in the pod
+  - Common alternatives: `chat-responses-request-mgr.py` for testing with request manager
+
+- `--no-employee-id`: Uses alternative conversation files from the `no-employee-id` subdirectory
+  - Useful for testing agents that use authenticated user identity instead of collecting employee IDs
+  - Falls back to regular conversation files if no alternative exists
+
+- `--reset-conversation`: Sends a "reset" message at the start of each conversation
+  - Ensures each conversation starts with a fresh session
+  - Useful for preventing state carryover between tests
+  - The agent responds with a fresh introduction after reset
+
+**Example Run**
+
+```bash
+$ python run_conversations.py --test-script chat.py --reset-conversation
+
+INFO:helpers.run_conversation_flow:Found 2 JSON files to process
+INFO:helpers.run_conversation_flow:Processing success-flow-1.json with 4 questions using authoritative_user_id: alice.johnson@company.com
+INFO:helpers.openshift_chat_client:Sending reset message to start fresh conversation
+INFO:helpers.openshift_chat_client:Reset response: Session cleared. Starting fresh!...
+INFO:helpers.run_conversation_flow:Results saved to results/conversation_results/success-flow-1.json
+INFO:helpers.run_conversation_flow:Processing known_good_flow.json with 5 questions...
+INFO:helpers.run_conversation_flow:Results saved to results/conversation_results/known_good_flow.json
+INFO:helpers.run_conversation_flow:Flows processing completed
+
+=== Token Usage Summary ===
+
+📱 App Tokens (from chat agent):
+  Input tokens: 13,572
+  Output tokens: 1,166
+  Total tokens: 14,738
+  API calls: 6
+```
+
+### 4.2 Understanding OpenShift Integration
+
+The evaluation framework connects to your deployed agent via OpenShift's `oc exec` command. This provides a direct, interactive session with the agent.
+
+**How OpenShift Sessions Work**
+
+When you run a conversation, the framework:
+
+1. **Establishes Connection**: Uses `oc exec` to create an interactive shell in the agent pod
+2. **Sets Environment**: Configures `AUTHORITATIVE_USER_ID` to simulate the test user
+3. **Starts Test Script**: Launches the specified test script (e.g., `chat.py`)
+4. **Manages Session**: Maintains stdin/stdout pipes for message exchange
+5. **Tracks Tokens**: Parses token usage information from agent responses
+6. **Closes Session**: Gracefully terminates the connection when complete
+
+**Session Management**
+
+Each conversation creates a persistent session:
+
+```python
+# The framework maintains session state throughout the conversation
+session.start_session()                    # Connect to OpenShift pod
+intro = session.get_agent_initialization() # Get initial greeting
+response = session.send_message("refresh") # Send user message
+response = session.send_message("yes")     # Continue conversation
+session.close_session()                    # Clean up
+```
+
+**OpenShift Prerequisites**
+
+For the integration to work, ensure:
+
+- `oc` command is installed and in your PATH
+- You're logged into the correct OpenShift cluster (`oc login`)
+- You're in the correct namespace (`oc project your-namespace`)
+- Agent pods are running and accessible
+- You have exec permissions on the deployment
+
+**Connection Command**
+
+The framework executes a command similar to:
+
+```bash
+oc exec -it deploy/self-service-agent -- bash -c \
+  "AGENT_MESSAGE_TERMINATOR=:DONE AUTHORITATIVE_USER_ID=alice.johnson@company.com \
+   /app/.venv/bin/python /app/test/chat.py"
+```
+
+This creates an interactive session where:
+- `AGENT_MESSAGE_TERMINATOR=:DONE`: Marks the end of agent responses
+- `AUTHORITATIVE_USER_ID=alice.johnson@company.com`: Sets the user identity
+- `/app/.venv/bin/python /app/test/chat.py`: Runs the test script
+
+**Token Tracking**
+
+The framework automatically tracks token usage by parsing special output from the agent:
+
+```
+TOKEN_SUMMARY:INPUT:123:OUTPUT:456:TOTAL:579:CALLS:2:MAX_SINGLE_INPUT:50:MAX_SINGLE_OUTPUT:75:MAX_SINGLE_TOTAL:125
+```
+
+This provides:
+- Total input/output tokens
+- Number of LLM API calls
+- Maximum tokens in a single request
+
+### 4.3 Output Format
+
+The script produces conversation result files in JSON format, saved to `results/conversation_results/`.
+
+**Conversation Result Structure**
+
+Each result file contains the complete conversation with both user and agent messages:
+
+```json
+{
+  "metadata": {
+    "authoritative_user_id": "alice.johnson@company.com",
+    "description": "Test results from success-flow-1.json"
+  },
+  "conversation": [
+    {
+      "role": "assistant",
+      "content": "Hello! I'm the routing agent..."
+    },
+    {
+      "role": "user",
+      "content": "refresh"
+    },
+    {
+      "role": "assistant",
+      "content": "Your laptop, a Latitude 7420, was purchased on 2020-01-15..."
+    },
+    {
+      "role": "user",
+      "content": "I would like to see the options"
+    }
+  ]
+}
+```
+
+**Output Components**
+
+1. **metadata**: Information about the test conversation
+   - `authoritative_user_id`: The simulated user identity
+   - `description`: Description of what the conversation tests
+
+2. **conversation**: Array of conversation turns
+   - Each turn has a `role` ("user" or "assistant") and `content` (message text)
+   - Agent responses are captured from the live session
+   - Complete conversation flow from start to finish
+
+**Where Results Are Saved**
+
+Results are written to:
+
+```
+results/conversation_results/
+├── success-flow-1.json          # From template success-flow-1.json
+├── edge-case-ineligible.json    # From template edge-case-ineligible.json
+├── known_good_flow.json         # From template known_good_flow.json
+└── ...
+```
+
+The output filename matches the input template filename. If a file already exists, it will be overwritten.
+
+**Token Usage Files**
+
+In addition to conversation results, the script saves token usage statistics:
+
+```
+results/token_usage/
+└── run_conversations_20251010_171154.json
+```
+
+The token usage file contains:
+
+```json
+{
+  "summary": {
+    "total_input_tokens": 13572,
+    "total_output_tokens": 1166,
+    "total_tokens": 14738,
+    "call_count": 6
+  },
+  "app_tokens": {
+    "input": 13572,
+    "output": 1166,
+    "total": 14738,
+    "calls": 6
+  },
+  "evaluation_tokens": {
+    "total_input_tokens": 0,
+    "total_output_tokens": 0,
+    "total_tokens": 0,
+    "call_count": 0
+  }
+}
+```
+
+**Reading Results**
+
+To examine the conversation results:
+
+```bash
+# View a specific conversation
+cat results/conversation_results/success-flow-1.json | jq .
+
+# Count conversation turns
+cat results/conversation_results/success-flow-1.json | jq '.conversation | length'
+
+# Extract all user messages
+cat results/conversation_results/success-flow-1.json | jq '.conversation[] | select(.role == "user") | .content'
+
+# Extract all agent responses
+cat results/conversation_results/success-flow-1.json | jq '.conversation[] | select(.role == "assistant") | .content'
+```
