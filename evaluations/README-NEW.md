@@ -205,7 +205,7 @@ export LLM_URL="https://your-llm-endpoint.com/v1"
 
 ```bash
 # Specific model ID to use (if not using endpoint default)
-export LLM_ID="gpt-4o-mini"
+export LLM_ID="llama-3-3-70b-instruct"
 ```
 
 **Verification:**
@@ -361,3 +361,262 @@ When you find a problematic conversation:
 ```
 
 This conversation should fail the "Ticket number validation" metric because the ticket starts with "INC" instead of "REQ".
+
+## 2. Quick Start
+
+This section will guide you through installing the evaluation framework, configuring your environment, and running your first evaluation.
+
+### 2.1 Installation
+
+The evaluation framework uses **uv** for dependency management, which provides fast, reliable Python package installation and virtual environment management.
+
+**Install with UV**
+
+```bash
+# Navigate to the evaluations directory
+cd evaluations/
+
+# Install dependencies using uv
+# Note: uv automatically creates a .venv directory if it doesn't exist
+uv sync
+```
+
+**What Gets Installed**
+
+The `uv sync` command installs:
+
+**Core dependencies:**
+- `deepeval>=3.3.9` - Evaluation framework for conversational AI
+- `openai>=1.99.0` - LLM API client library
+
+**Verify Installation**
+
+After installation, verify that everything is set up correctly:
+
+```bash
+# Activate the uv environment
+source .venv/bin/activate  # On Linux/Mac
+# or
+.venv\Scripts\activate  # On Windows
+
+# Check Python version
+python --version  # Should be 3.12 or higher
+
+# Verify deepeval is installed
+python -c "import deepeval; print(deepeval.__version__)"
+
+# Verify OpenAI client is installed
+python -c "import openai; print(openai.__version__)"
+```
+
+### 2.2 Environment Configuration
+
+Before running evaluations, you need to configure environment variables for LLM API access and verify your OpenShift connection.
+
+**Required Environment Variables**
+
+Set these environment variables in your shell:
+
+```bash
+# LLM API authentication token
+export LLM_API_TOKEN="your-api-key-here"
+
+# LLM API endpoint URL (OpenAI-compatible)
+export LLM_URL="https://your-llm-endpoint.com/v1"
+```
+
+**Optional Environment Variables**
+
+```bash
+# Specific model ID to use (if not using endpoint default)
+export LLM_ID="llama-3-3-70b-instruct"
+```
+
+**OpenShift Connection Setup**
+
+The evaluation framework executes conversations against agents deployed in OpenShift. Ensure you have:
+
+1. **OpenShift CLI installed**:
+   ```bash
+   # Verify oc is installed
+   oc version
+   ```
+
+2. **Logged into your cluster**:
+   ```bash
+   # Log in to your OpenShift cluster
+   oc login --server=https://your-cluster:6443 --token=your-token
+   ```
+
+3. **Access to the correct namespace**:
+   ```bash
+   # Switch to the namespace where your agent is deployed
+   oc project your-namespace
+
+   # Verify you can see the agent pods
+   oc get pods | grep agent
+   ```
+
+**Verification Steps**
+
+Run these commands to verify your environment is properly configured:
+
+```bash
+# 1. Check environment variables
+echo $LLM_API_TOKEN  # Should display your API key
+echo $LLM_URL        # Should display your endpoint URL
+
+# 2. Check OpenShift access
+oc whoami           # Should show your username
+oc project          # Should show current namespace
+
+# 3. Check Python and dependencies
+python --version    # Should be 3.12 or higher
+python -c "import deepeval, openai"  # Should run without errors
+
+# 4. Verify agent pods are running
+oc get pods         # Should show agent pods in Running state
+```
+
+### 2.3 Running Your First Evaluation
+
+Once installation and configuration are complete, you're ready to run your first evaluation using the orchestrator script.
+
+**Basic Pipeline Execution**
+
+The `evaluate.py` script orchestrates the complete evaluation pipeline:
+
+```bash
+# Run the complete evaluation pipeline with default settings
+# - Executes predefined conversation templates
+# - Generates 20 additional synthetic conversations
+# - Evaluates all conversations with comprehensive metrics
+python evaluate.py
+```
+
+**Common Command-Line Options**
+
+```bash
+# Generate fewer conversations (faster for testing)
+python evaluate.py -n 5
+
+# Generate more conversations (broader coverage)
+python evaluate.py --num-conversations 50
+
+# Adjust maximum conversation turns
+python evaluate.py --max-turns 30
+
+# Use a different test script in OpenShift
+python evaluate.py --test-script my_agent.py
+
+# Skip employee ID collection checks
+python evaluate.py --no-employee-id
+
+# Test known bad conversations (validation check)
+python evaluate.py --check
+```
+
+**Understanding the Output**
+
+When you run the evaluation pipeline, you'll see output organized by steps:
+
+```
+🎯 Starting Evaluation Pipeline
+================================================================================
+📋 Step 1/3: Running predefined conversation flows...
+🚀 Starting: python run_conversations.py --test-script chat.py
+   [Output from conversation execution...]
+✅ Completed: run_conversations.py (Duration: 45.32s)
+
+📋 Step 2/3: Generating 20 additional test conversations...
+🚀 Starting: python generator.py 20 --max-turns 20 --test-script chat.py
+   [Output from conversation generation...]
+✅ Completed: generator.py (Duration: 180.45s)
+
+📋 Step 3/3: Running deepeval evaluation...
+🚀 Starting: python deep_eval.py
+   [Output from evaluation...]
+✅ Completed: deep_eval.py (Duration: 95.12s)
+
+🏁 Evaluation Pipeline Complete (Total Duration: 320.89s)
+```
+
+After evaluation completes, you'll see a comprehensive token usage summary:
+
+```
+=== COMPLETE PIPELINE TOKEN USAGE SUMMARY ===
+================================================================================
+
+📱 App Tokens (from chat agents):
+  Input tokens: 45,230
+  Output tokens: 12,890
+  Total tokens: 58,120
+  API calls: 156
+
+🔬 Evaluation Tokens (from evaluation LLM calls):
+  Input tokens: 89,450
+  Output tokens: 8,340
+  Total tokens: 97,790
+  API calls: 234
+
+📊 Combined Pipeline Statistics:
+  Total LLM calls: 390
+  Total tokens used: 155,910
+```
+
+**Where to Find Results**
+
+The evaluation pipeline creates results in the `results/` directory:
+
+```
+results/
+├── conversation_results/          # Conversation transcripts
+│   ├── success-flow-1.json       # From predefined templates
+│   ├── known_good_flow.json      # From predefined templates
+│   ├── generated_flow_1_*.json   # AI-generated conversations
+│   ├── generated_flow_2_*.json
+│   └── ...
+├── deep_eval_results/            # Evaluation reports
+│   ├── deepeval_success-flow-1.json        # Individual results
+│   ├── deepeval_generated_flow_1_*.json
+│   ├── deepeval_all_results.json           # Combined results
+│   └── ...
+└── token_usage/                  # Token usage statistics
+    ├── run_conversations_*.json
+    ├── generator_*.json
+    ├── deep_eval_*.json
+    └── pipeline_aggregated_*.json  # Combined token stats
+```
+
+**Examining Results**
+
+1. **Conversation transcripts** (`results/conversation_results/`):
+   - View actual conversations between users and the agent
+   - See user inputs and agent responses
+   - Check metadata like user IDs and timestamps
+
+2. **Evaluation reports** (`results/deep_eval_results/`):
+   - Individual JSON files show metric-by-metric evaluation
+   - `deepeval_all_results.json` provides aggregated pass/fail statistics
+   - Each metric includes score, success status, and reason
+
+3. **Token usage** (`results/token_usage/`):
+   - Track LLM API usage for cost estimation
+   - Separate app tokens (agent) from evaluation tokens
+   - Identify expensive conversations or metrics
+
+**Example: Viewing Evaluation Results**
+
+```bash
+# View the combined evaluation results
+cat results/deep_eval_results/deepeval_all_results.json | jq .
+
+# Count successful evaluations
+cat results/deep_eval_results/deepeval_all_results.json | jq '.successful_evaluations | length'
+
+# View a specific conversation result
+cat results/conversation_results/success-flow-1.json | jq .
+
+# Check token usage summary
+cat results/token_usage/pipeline_aggregated_*.json | jq '.summary'
+```
