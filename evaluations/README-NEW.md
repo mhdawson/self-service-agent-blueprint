@@ -927,8 +927,10 @@ RESULTS FOR: no-ticket-number.json
    ...
    ❌ FAIL Ticket number validation [Conversational GEval]: 0.000 (threshold: 1.0)
       Reason: The conversation does not mention the ticket number, so it's impossible to verify...
+   ❌ FAIL Employeed id requested [Conversational GEval]: 0.000 (threshold: 1.0)
+      Reason: The conversation completely fails to meet the criteria because the assistant never asks...
 
-   📈 PASS RATE: 12/13 (92%)
+   📈 PASS RATE: 12/14 (85.7%)
 
 ================================================================================
 🔍 KNOWN BAD CONVERSATIONS CHECK RESULTS
@@ -1238,4 +1240,673 @@ cat results/conversation_results/success-flow-1.json | jq '.conversation[] | sel
 
 # Extract all agent responses
 cat results/conversation_results/success-flow-1.json | jq '.conversation[] | select(.role == "assistant") | .content'
+```
+
+## 5. Generating Synthetic Conversations
+
+The `generator.py` script creates AI-generated test conversations by simulating realistic user behavior at scale. This section explains how synthetic conversation generation works and how to customize it for your testing needs.
+
+### 5.1 Using generator.py
+
+The `generator.py` script uses DeepEval's conversation simulator to generate realistic user messages and sends them to your deployed agent, capturing the actual agent responses. This creates diverse test coverage that would be difficult to achieve with manual test case creation.
+
+**Basic Usage**
+
+```bash
+# Generate a single conversation (default)
+python generator.py
+
+# Generate multiple conversations
+python generator.py 10
+
+# Generate with specific maximum turns
+python generator.py 5 --max-turns 25
+```
+
+**Command-Line Options**
+
+The script supports several options to control generation behavior:
+
+```bash
+# Generate 20 conversations with default settings
+python generator.py 20
+
+# Limit conversation length to 15 turns
+python generator.py 10 --max-turns 15
+
+# Use a different test script in OpenShift
+python generator.py 5 --test-script chat-responses-request-mgr.py
+
+# Reset conversation state before each test
+python generator.py 3 --reset-conversation
+
+# Combine multiple options
+python generator.py 10 --max-turns 20 --test-script chat.py --reset-conversation
+```
+
+**Option Details**
+
+- **`num_conversations`** (positional argument):
+  - Number of conversations to generate
+  - Default: `1`
+  - Example: `python generator.py 20` generates 20 conversations
+  - Each conversation gets a unique user ID from `authoritative_user_ids`
+
+- **`--max-turns <number>`**:
+  - Maximum number of user simulation turns per conversation
+  - Default: `30`
+  - Controls conversation length (actual length may be shorter if agent ends conversation)
+  - Higher values allow more thorough testing but increase generation time
+
+- **`--test-script <name>`**:
+  - Specifies which Python script to execute in the OpenShift pod
+  - Default: `chat.py`
+  - Same as `run_conversations.py` option
+  - Must be available in `/app/test/` directory in the pod
+
+- **`--reset-conversation`**:
+  - Sends a "reset" message at the start of each conversation
+  - Ensures fresh session state for each test
+  - Prevents state carryover between conversations
+
+**Example Run**
+
+```bash
+$ python generator.py 3 --max-turns 20
+
+INFO:__main__:Starting conversation simulation with model: llama-3-3-70b-instruct
+INFO:__main__:Generating 3 conversation(s) sequentially
+INFO:__main__:Maximum user simulations per conversation: 20
+INFO:__main__:Creating ConversationSimulator...
+INFO:__main__:Generating conversation 1 of 3...
+INFO:__main__:Conversation 1 using authoritative user ID: yuki.tanaka@company.com
+INFO:__main__:Running simulation for conversation 1...
+INFO:__main__:Conversation 1 simulation completed successfully
+INFO:__main__:App tokens from conversation 1: {'input': 4521, 'output': 312, 'total': 4833, 'calls': 5}
+INFO:__main__:Test case 1 saved to: results/conversation_results/generated_flow_1_20251010_143521.json
+
+INFO:__main__:Generating conversation 2 of 3...
+...
+
+INFO:__main__:Sequential generation completed. Generated 3 total test cases
+
+=== Saved Conversations ===
+- results/conversation_results/generated_flow_1_20251010_143521.json
+- results/conversation_results/generated_flow_2_20251010_143612.json
+- results/conversation_results/generated_flow_3_20251010_143705.json
+
+=== Token Usage Summary ===
+
+📱 App Tokens (from chat agent):
+  Input tokens: 13,456
+  Output tokens: 945
+  Total tokens: 14,401
+  API calls: 15
+```
+
+### 5.2 How Conversation Generation Works
+
+The conversation generation system combines AI-driven user simulation with live agent testing to create realistic test scenarios.
+
+**Architecture Overview**
+
+The generator uses a two-LLM architecture:
+
+1. **User Simulator LLM**: Generates realistic user messages based on scenario
+2. **Deployed Agent**: Provides actual agent responses via OpenShift
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    generator.py Process                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ConversationSimulator (DeepEval)                            │
+│  ├── Simulator LLM (User Behavior)                           │
+│  │   └── Generates: "I need a laptop refresh"                │
+│  │                                                            │
+│  └── model_callback (OpenShift Client)                       │
+│      └── Sends to: Deployed Agent → Get Real Response        │
+│                                                               │
+│  Repeat until: Conversation completes or max turns reached   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**ConversationalGolden Objects**
+
+`ConversationalGolden` objects are used to define the simulation scenario
+(defined in generator.py):
+
+```python
+ConversationalGolden(
+    scenario="An Employee wants to refresh their laptop. The agent shows them a "
+             "list they can choose from, they select the appropriate laptop "
+             "and a service now ticket number is returned.",
+    expected_outcome="They get a Service now ticket number for their refresh request",
+    user_description=f"authenticated user who tries to answer the assistants last question"
+)
+```
+
+**Components:**
+
+- **scenario**: Description of the user's goal and the expected interaction flow
+  - Guides the simulator LLM to generate appropriate user messages
+  - Should describe the complete user journey from start to finish
+  - Can include specific behaviors.
+
+- **expected_outcome**: What success looks like for this conversation
+  - Helps the simulator understand when the conversation should conclude
+  - Example: "They get a Service now ticket number"
+
+- **user_description**: Characteristics of the simulated user
+  - Defines user behavior (e.g., "tries to answer the assistants last question")
+  - Can specify user personality, expertise level, or communication style
+
+**model_callback Mechanism**
+
+The `model_callback` function is the bridge between the simulator and your deployed agent:
+
+```python
+async def _model_callback(input: str, turns: List[Turn], thread_id: str) -> Turn:
+    # 1. Receive user message from simulator
+    logger.info(f"Sending to agent: {input}")
+
+    # 2. Send to deployed agent via OpenShift
+    response = client.send_message(input)
+
+    # 3. Return agent's response to simulator
+    logger.info(f"Agent response: '{response}'")
+    return Turn(role="assistant", content=response)
+```
+
+**Flow:**
+
+1. Simulator generates a user message
+2. `model_callback` receives the message
+3. Message is sent to deployed agent via OpenShift `oc exec`
+4. Agent processes and responds
+5. Response is returned to simulator
+6. Simulator uses response to generate next user message
+7. Process repeats until conversation completes or `max_turns` reached
+
+### 5.3 Generated File Naming
+
+Generated conversations are saved with timestamped filenames to ensure uniqueness and traceability.
+
+**Filename Format**
+
+Generated conversation files follow this naming pattern:
+
+```
+generated_flow_{number}_{timestamp}.json
+```
+
+Where:
+- **`generated_flow_`**: Fixed prefix identifying generated conversations
+- **`{number}`**: Sequential test case number (1, 2, 3, ...)
+- **`{timestamp}`**: Generation timestamp in `YYYYMMDD_HHMMSS` format
+- **`.json`**: File extension
+
+**Examples:**
+
+```
+generated_flow_1_20251010_143521.json
+generated_flow_2_20251010_143612.json
+generated_flow_3_20251010_143705.json
+```
+
+**File Location**
+
+All generated conversations are saved to:
+
+```
+results/conversation_results/generated_flow_*.json
+```
+
+This is the same directory where `run_conversations.py` saves predefined conversation results. This allows `deep_eval.py` to evaluate both types together.
+
+The `evaluate.py` orchestrator automatically cleans up generated files before starting a new evaluation run.
+
+**File Content Structure**
+
+Generated conversation files use the same format as predefined conversations:
+
+```json
+{
+  "metadata": {
+    "authoritative_user_id": "yuki.tanaka@company.com",
+    "description": "Generated conversation from deepeval simulation"
+  },
+  "conversation": [
+    {
+      "role": "user",
+      "content": "Hi, I'm having some issues with my laptop and I think it needs a refresh."
+    },
+    {
+      "role": "assistant",
+      "content": "Your laptop, a XPS 13 9310, was purchased on 2018-09-03..."
+    },
+    {
+      "role": "user",
+      "content": "Yes, I'd like to review the available laptop options."
+    }
+  ]
+}
+```
+
+The structure is identical to predefined conversations, making them fully compatible with the evaluation pipeline.
+
+## 6. Evaluation Metrics
+
+The evaluation framework uses a suite of metrics to assess conversation quality. This section explains what metrics measure, how they're scored, and how to create custom metrics for your specific needs.
+
+### 6.1 Understanding DeepEval Metrics
+
+The framework uses DeepEval's metric system to evaluate conversations through LLM-based assessment. This provides nuanced quality checks that go beyond simple pattern matching.
+
+**How Metrics Work**
+
+Each metric evaluates a conversation and returns:
+
+1. **Score**: A numerical value (typically 0.0 to 1.0) indicating quality
+2. **Success**: Boolean indicating whether the score meets the threshold
+3. **Reason**: Detailed explanation of why the metric passed or failed
+
+**Threshold Values**
+
+Every metric has a threshold that determines pass/fail status:
+
+- **Threshold 0.5**: Lenient - allows moderate quality (50% or better)
+- **Threshold 0.8**: Standard - requires good quality (80% or better)
+- **Threshold 1.0**: Strict - requires perfect quality (100%)
+
+**LLM-Based Assessment**
+
+Metrics use an LLM to evaluate conversations by:
+
+1. Reading the entire conversation transcript
+2. Analyzing content against evaluation criteria
+3. Considering context (policies, laptop options, etc.)
+4. Generating a score and detailed reasoning
+
+This approach catches nuanced issues that rule-based systems would miss.
+
+**Example Metric Output**
+
+From an actual evaluation:
+
+```
+✅ PASS Turn Relevancy: 1.000 (threshold: 0.8)
+❌ FAIL Ticket number validation [Conversational GEval]: 0.000 (threshold: 1.0)
+   Reason: The conversation does not mention the ticket number, so it's impossible
+   to verify if the first three characters are 'REQ' as required by the evaluation steps.
+```
+
+### 6.2 Standard Conversation Metrics
+
+We use three built-in conversational metrics from DeepEval that assess fundamental conversation quality.
+
+#### Turn Relevancy
+
+**Purpose**: Measures whether each assistant response is relevant to the user's message and conversation context.
+
+**Threshold**: 0.8 (requires 80% relevance across all turns)
+
+**What It Checks**:
+- Assistant responses address user questions
+- Responses stay on topic
+- No irrelevant or off-topic content
+- Responses acknowledge user input appropriately
+
+**Example Failure**:
+
+```
+❌ FAIL Turn Relevancy: 0.500 (threshold: 0.8)
+   Reason: The score is 0.5 because the LLM incorrectly stated the user selected
+   the 'Apple MacBook Air M2' in messages 3 and 4, when in fact the user had
+   selected 'option 3, the Lenovo ThinkPad T14 Gen 4 Intel', indicating a
+   significant mistake in the LLM's understanding of the user's selection.
+```
+
+This metric caught the agent misunderstanding the user's laptop selection.
+
+#### Role Adherence
+
+**Purpose**: Evaluates whether the assistant maintains its defined role throughout the conversation.
+
+**Threshold**: 0.5 (requires 50% role consistency)
+
+**Chatbot Role** (from `deep_eval.py:197`):
+```
+"You are an IT Support Agent specializing in hardware replacement. Your task is
+to determine if an employee's laptop is eligible for replacement based on the
+company policy and the specific context of their request."
+```
+
+**What It Checks**:
+- Maintains IT Support Agent persona
+- Doesn't claim to be the user or other roles
+- Provides appropriate IT support guidance
+- Follows professional support protocols
+
+**Example Failure**:
+
+```
+❌ FAIL Role Adherence: 0.333 (threshold: 0.5)
+   Reason: The score is 0.33 because the LLM chatbot responses failed to adhere
+   to the IT Support Agent role, particularly in turn #5 where the chatbot said
+   'I'd like to select option 5, the commodore 64, as it seems suitable for my
+   role as a general office user.' This response is out of character as it appears
+   to be a user's response rather than the IT Support Agent's.
+```
+
+This metric detected the agent accidentally speaking as the user instead of maintaining its support role.
+
+#### Conversation Completeness
+
+**Purpose**: Assesses whether the conversation reaches a satisfactory conclusion that fulfills the user's intent.
+
+**Threshold**: 0.8 (requires 80% completeness)
+
+**What It Checks**:
+- User's initial intent is addressed
+- Conversation has proper ending
+- No abrupt terminations
+- User's needs are satisfied
+
+**Example Failure**:
+
+```
+❌ FAIL Conversation Completeness: 0.000 (threshold: 0.8)
+   Reason: The score is 0.0 because the LLM response failed to address the user's
+   invalid selection of 'option 5, the commodore 64', which is not one of the
+   provided options, and instead proceeded to create a ServiceNow ticket without
+   resolving the issue, thereby not fully satisfying the user's intention.
+```
+
+This metric identified an incomplete conversation where the agent didn't properly handle an invalid user selection.
+
+### 6.3 Laptop Refresh-Specific Metrics
+
+For the laptop refresh use case we defined custom ConversationalGEval metrics designed specifically for laptop refresh conversations. These metrics check the domain-specific business requirements. These metrics are defined in `get_deepeval_metrics.py`
+
+#### Information Gathering
+
+**Purpose**: Evaluates whether the assistant collects necessary information to process the laptop refresh request.
+
+**Threshold**: 0.8
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Evaluate if the assistant gathers necessary information about the user's current laptop.",
+    "Check if the assistant follows a logical flow for information collection.",
+    "Assess if the assistant properly requests employee ID from the user."  # Conditional
+]
+```
+
+**What It Checks**:
+- Gathers current laptop information
+- Follows logical information collection sequence
+- Requests employee ID (when `--no-employee-id` is not set)
+
+#### Policy Compliance
+
+**Purpose**: Verifies the assistant correctly applies laptop refresh policies.
+
+**Threshold**: 0.8
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Assess if the assistant correctly applies laptop refresh policies.",
+    "Evaluate if eligibility determination is accurate based on laptop age and warranty.",
+    "Check if the assistant provides clear policy explanations.",
+]
+```
+
+**What It Checks**:
+- Applies refresh policy timeline correctly
+- Determines eligibility based on laptop age
+- Explains policy to users clearly
+
+**Example Failure**:
+
+```
+❌ FAIL Policy Compliance [Conversational GEval]: 0.000 (threshold: 0.8)
+   Reason: The conversation completely fails to meet the criteria because the
+   assistant incorrectly determines the user's eligibility for a laptop refresh,
+   stating the laptop is eligible when it is only 2 years and 11 months old,
+   which is less than the 3-year refresh cycle specified in the policy.
+```
+
+#### Option Presentation
+
+**Purpose**: Assesses the quality and accuracy of laptop option presentation to users.
+
+**Threshold**: 0.8
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Assess if the assistant presents appropriate laptop options based on user location.",
+    "Evaluate if laptop specifications are clearly and completely presented.",
+    "Check if the assistant guides the user through selection process effectively.",
+]
+```
+
+**What It Checks**:
+- Presents laptops appropriate for user's geographic location
+- Provides complete specifications (CPU, RAM, storage, etc.)
+- Guides user through selection effectively
+
+#### Process Completion
+
+**Purpose**: Evaluates whether the assistant guides users through the complete laptop refresh process.
+
+**Threshold**: 0.8
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Assess if the assistant guides the user through the complete laptop refresh process.",
+    "Evaluate if the assistant confirms user selections appropriately.",
+    "Check if the assistant provides clear next steps or completion actions.",
+]
+```
+
+**What It Checks**:
+- Complete end-to-end process flow
+- Confirms user selections before proceeding
+- Provides clear next steps
+
+#### User Experience
+
+**Purpose**: Measures the helpfulness, professionalism, and clarity of assistant responses.
+
+**Threshold**: 0.8
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Assess if the assistant is helpful and professional throughout the conversation.",
+    "Evaluate if responses are clear and easy to understand.",
+    "Check if the assistant addresses user needs effectively.",
+]
+```
+
+**What It Checks**:
+- Helpful and professional tone
+- Clear, understandable responses
+- Effectively addresses user needs
+
+#### Flow Termination
+
+**Purpose**: Validates that conversations end properly with the expected termination pattern.
+
+**Threshold**: 0.8
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Check if the conversation ends with DONEDONEDONE or the agent returning a
+     service now ticket number to the user. If the ends in any other way the
+     conversation failed"
+]
+```
+
+"DONEDONEDONE" is allowed as a way for us to be able to terminate manually defined conversations
+at a point that makes sense for the specific test conversation.
+
+**What It Checks**:
+- Conversation ends with "DONEDONEDONE" marker OR
+- Agent provides ServiceNow ticket number to user
+- No premature or improper endings
+
+**Example Failure**:
+
+```
+❌ FAIL Flow termination [Conversational GEval]: 0.000 (threshold: 0.8)
+   Reason: The conversation does not end with DONEDONEDONE or the agent returning
+   a service now ticket number to the user, instead it ends with 'Ok we are done
+   now' which does not meet the specified criteria.
+```
+
+#### Ticket Number Validation
+
+**Purpose**: Ensures ServiceNow ticket numbers follow the correct format (REQ prefix).
+
+**Threshold**: 1.0 (strict - must be perfect)
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Check that the first three characters of the ticket number for the laptop
+     request are REQ"
+]
+```
+
+**What It Checks**:
+- Ticket numbers start with "REQ"
+- Correct ServiceNow ticket format
+- No incorrect prefixes (like "INC")
+
+**Example Failure**:
+
+```
+❌ FAIL Ticket number validation [Conversational GEval]: 0.000 (threshold: 1.0)
+   Reason: The conversation does not mention the ticket number, so it's impossible
+   to verify if the first three characters are 'REQ' as required by the evaluation steps.
+```
+
+#### Correct Eligibility Validation
+
+**Purpose**: Verifies the agent states the correct laptop refresh cycle (3 years).
+
+**Threshold**: 1.0 (strict - must be perfect)
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    f"Validate that if the agent states the number of years after which laptops
+      are refreshed, what is says is consistent with the additional context. It is
+      ok if the user is not yet eligible. Do not assess anything other than the
+      number of years stated.\n\nadditional-context-start\n{default_context}\nadditional-context-end",
+]
+```
+
+**What It Checks**:
+- Agent correctly states 3-year refresh cycle
+- Consistency with company policy documentation
+- Doesn't check eligibility determination, only the stated policy
+
+This is an example of using additional context in an eval. More details are provided in the
+section titled "Context and Additional Data"
+
+#### No Errors Reported by Agent
+
+**Purpose**: Validates there are no system errors or response problems in the conversation.
+
+**Threshold**: 1.0 (strict - must be perfect)
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Validate that there are no problems with system responses",
+]
+```
+
+**What It Checks**:
+- No error messages from the agent
+- No system failures or exceptions
+- No communication problems
+
+**Example Failure**:
+
+```
+❌ FAIL No errors reported by agent [Conversational GEval]: 0.000 (threshold: 1.0)
+   Reason: The conversation completely fails to meet the criteria because the user's
+   request to select option 5, the Commodore 64, is not a valid option as it was not
+   presented by the assistant, and the assistant should have validated this request
+   and responded accordingly, instead of proceeding with creating a ServiceNow ticket
+   without addressing the invalid option.
+```
+
+#### Correct Laptop Options for User Location
+
+**Purpose**: Validates that laptop options match the user's geographic location and include all available models.
+
+**Threshold**: 1.0 (strict - must be perfect)
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    f"Validate that if the agent provides a list of laptop options in the
+      conversation, the list includes all of the available options in the
+      additional context for the user's location.\n\nadditional-context-start\n{default_context}\nadditional-context-end",
+]
+```
+
+**What It Checks**:
+- All laptop models for user's location are presented
+- No missing laptop options
+- No invalid laptop models (e.g., "Commodore 64")
+- Correct region matching (NA, EMEA, APAC, LATAM)
+
+**Example Failure**:
+
+```
+❌ FAIL Correct laptop options for user location [Conversational GEval]: 0.000 (threshold: 1.0)
+   Reason: The conversation does not fully meet the criteria because the agent
+   presented only three laptop options for the EMEA location, whereas the evaluation
+   steps require exactly four options to be presented, and one of the required
+   models, 'MacBook Air M2', was missing from the list.
+```
+
+#### Employee ID Requested
+
+**Purpose**: Validates the agent requests the user's employee ID (conditional metric).
+
+**Threshold**: 1.0 (strict - must be perfect)
+
+**Conditional**: Only included when `--no-employee-id` flag is NOT set
+
+**Evaluation Steps**:
+```python
+evaluation_steps=[
+    "Validate the assistant asks for the users employee id",
+]
+```
+
+**What It Checks**:
+- Agent explicitly asks for employee ID
+- Request happens during the conversation
+- Not included when testing authenticated user flows
+
+**Example Failure**:
+
+```
+❌ FAIL Employeed id requested [Conversational GEval]: 0.000 (threshold: 1.0)
+   Reason: The conversation completely fails to meet the criteria because the
+   assistant never asks for the user's employee ID, which is a required step
+   according to the evaluation steps.
 ```
