@@ -24,7 +24,7 @@ The framework provides three main capabilities:
 
 The framework supports three distinct types of test conversations, each serving a different testing purpose:
 
-- **Pre-defined conversations**: Hand-crafted test cases that validate critical user flows
+- **Predefined conversations**: Hand-crafted test cases that validate critical user flows
 - **Generated conversations**: AI-generated scenarios that provide broad test coverage
 - **Known bad conversations**: Expected failure cases that validate the evaluation system itself
 
@@ -40,8 +40,8 @@ The evaluation framework consists of four main components that work together in 
    - Aggregates results and token usage statistics
    - Provides unified command-line interface
 
-2. **`run_conversations.py`** - Live Agent Testing with Pre-defined Inputs
-   - Executes pre-defined conversations against deployed agent
+2. **`run_conversations.py`** - Live Agent Testing with Predefined Inputs
+   - Executes predefined conversations against deployed agent
    - Uses hand-crafted user inputs from conversations
    - Connects to deployed agents via OpenShift
    - Captures real agent responses
@@ -72,7 +72,7 @@ The typical evaluation workflow follows this sequence:
    - Clear old token usage files
    ↓
 3. run_conversations.py
-   - Execute pre-defined conversations
+   - Execute predefined conversations
    - Save results to results/conversation_results/
    ↓
 4. generator.py
@@ -80,7 +80,7 @@ The typical evaluation workflow follows this sequence:
    - Add to results/conversation_results/
    ↓
 5. deep_eval.py
-   - Evaluate ALL conversations (pre-defined + generated)
+   - Evaluate ALL conversations (predefined + generated)
    - Apply comprehensive metrics
    - Generate reports in results/deep_eval_results/
    ↓
@@ -94,7 +94,7 @@ The typical evaluation workflow follows this sequence:
 
 ```mermaid
 flowchart TD
-    A[Pre-defined Templates<br/>conversations_config/]
+    A[Predefined Conversations<br/>conversations_config/]
     B[AI Simulator<br/>DeepEval]
     C[run_conversations.py]
     D[generator.py]
@@ -221,11 +221,11 @@ python --version    # Should be 3.12 or higher
 
 The evaluation framework supports three distinct types of test conversations, each serving a specific purpose in the testing strategy:
 
-#### Pre-defined Conversations
+#### Predefined Conversations
 
 **Location**: `conversations_config/conversations/`
 
-Pre-defined conversations are hand-crafted test cases that validate critical user flows and scenarios. These conversations are version-controlled JSON files that represent important paths through your agent's functionality.
+Predefined conversations are hand-crafted test cases that validate critical user flows and scenarios. These conversations are version-controlled JSON files that represent important paths through your agent's functionality.
 
 **Characteristics:**
 
@@ -616,17 +616,17 @@ cat results/conversation_results/success-flow-1.json | jq .
 cat results/token_usage/pipeline_aggregated_*.json | jq '.summary'
 ```
 
-## 3. Creating Pre-defined conversations
+## 3. Creating Predefined conversations
 
-Pre-defined conversations are hand-crafted test cases that define specific user flows to test your agent. This section explains how to create and organize pre-defined conversations for systematic testing.
+Predefined conversations are hand-crafted test cases that define specific user flows to test your agent. This section explains how to create and organize predefined conversations for systematic testing.
 
-### 3.1 Template Format
+### 3.1 Predefined Conversations Format
 
-Pre-definfed conversations are JSON files with a simple, standardized structure that defines metadata and the conversation flow.
+Predefined conversations are JSON files with a simple, standardized structure that defines metadata and the conversation flow.
 
 **Basic Structure**
 
-Every conversation template consists of two main sections:
+Every predefined conversation consists of two main sections:
 
 ```json
 {
@@ -642,14 +642,14 @@ Every conversation template consists of two main sections:
 }
 ```
 
-**Template Components**
+**Predefined Conversation Components**
 
 1. **metadata** (object):
    - `authoritative_user_id` (required): The user identity to use for this conversation
      - Must be an email address (e.g., `alice.johnson@company.com`)
      - Must match an entry in the `authoritative_user_ids` file
    - `description` (required): Human-readable description of the test scenario
-     - Explains what user flow or edge case this template tests
+     - Explains what user flow or edge case this predefined conversation tests
      - Useful for understanding test failures
 
 2. **conversation** (array):
@@ -692,9 +692,9 @@ evaluations/
         └── error-handling.json             # Error scenario
 ```
 
-**Creating a New Template**
+**Creating a New Predefined Conversation**
 
-To create a new conversation template:
+To create a new predefined conversation:
 
 1. **Choose a descriptive filename**:
    ```bash
@@ -733,7 +733,7 @@ The evaluation framework uses authoritative user IDs to simulate different users
 
 **Authoritative User IDs File**
 
-The `authoritative_user_ids` file contains a list of valid user email addresses that can be used in pre-defined conversations:
+The `authoritative_user_ids` file contains a list of valid user email addresses that can be used in predefined conversations:
 
 **Location**: `conversations_config/authoritative_user_ids`
 
@@ -752,10 +752,10 @@ yuki.tanaka@company.com
 When running conversations, the framework:
 
 1. **Reads** the `authoritative_user_ids` file
-2. **Matches** the `authoritative_user_id` from the template metadata
+2. **Matches** the `authoritative_user_id` from the predefined conversation metadata
 3. **Uses** that identity when communicating with the agent
 
-**Example Template**
+**Example**
 
 ```json
 {
@@ -924,7 +924,7 @@ When you find a problematic conversation during testing:
 
 ## 4. Running Conversations
 
-The `run_conversations.py` script executes pre-defined conversations against your deployed agent. This section explains how to use the script, configure its behavior, and understand the results it produces.
+The `run_conversations.py` script executes predefined conversations against your deployed agent. This section explains how to use the script, configure its behavior, and understand the results it produces.
 
 ### 4.1 Using run_conversations.py
 
@@ -937,7 +937,7 @@ The `run_conversations.py` script is the first step in the evaluation pipeline. 
 python run_conversations.py
 
 # This will:
-# 1. Load all pre-defined conversations from conversations_config/conversations/
+# 1. Load all predefined conversations from conversations_config/conversations/
 # 2. Execute each conversation against the deployed agent
 # 3. Save results to results/conversation_results/
 # 4. Track and report token usage
@@ -1115,13 +1115,13 @@ Results are written to:
 
 ```
 results/conversation_results/
-├── success-flow-1.json          # From template success-flow-1.json
-├── edge-case-ineligible.json    # From template edge-case-ineligible.json
-├── known_good_flow.json         # From template known_good_flow.json
+├── success-flow-1.json
+├── edge-case-ineligible.json
+├── known_good_flow.json
 └── ...
 ```
 
-The output filename matches the input template filename. If a file already exists, it will be overwritten.
+The output filename matches the input predefined conversation filename. If a file already exists, it will be overwritten.
 
 **Token Usage Files**
 
@@ -2061,7 +2061,7 @@ Removing 15 generated conversation files from previous runs
 Removing 8 token usage files from previous runs
 ```
 
-**Important**: This only removes generated files. Pre-defined conversation results and evaluation results are preserved unless manually deleted.
+**Important**: This only removes generated files. Predefined conversation results and evaluation results are preserved unless manually deleted.
 
 #### Step 1: Run Predefined Conversations
 
@@ -2345,8 +2345,8 @@ The `results/conversation_results/` directory contains complete conversation tra
 
 ```
 results/conversation_results/
-├── success-flow-1.json                    # From predefined template
-├── known_good_flow.json                   # From predefined template
+├── success-flow-1.json                    # From predefined conversation
+├── known_good_flow.json                   # From predefined conversation
 ├── generated_flow_1_20251010_143521.json  # AI-generated
 ├── generated_flow_2_20251010_143612.json  # AI-generated
 └── ...
@@ -2354,7 +2354,7 @@ results/conversation_results/
 
 **File Naming Conventions**:
 
-- **Predefined conversations**: Filename matches the template name (e.g., `success-flow-1.json`)
+- **Predefined conversations**: Filename matches the predefined conversation name (e.g., `success-flow-1.json`)
 - **Generated conversations**: Prefix `generated_flow_` followed by number and timestamp
 - **All files**: JSON format with `.json` extension
 
