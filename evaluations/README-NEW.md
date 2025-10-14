@@ -200,6 +200,8 @@ export LLM_URL="https://your-llm-endpoint.com/v1"
 export LLM_ID="llama-3-3-70b-instruct"
 ```
 
+The quality of the evaluations will depend on the model used. In the development of the quickstart we found that the minimum size model that passed `python evaluate.py --check` to validate the known bad conversations was llama-3-3-70b-instruct, with gemini-2.5-flash doing an even better job. llama-4-scout-17b-16e-w4a16 was able to complete most of the validations but was less consistent and failed to consistently validate that the proper laptops for the region had been presented.
+
 **Verification:**
 
 Verify your environment is properly configured:
@@ -616,7 +618,23 @@ cat results/conversation_results/success-flow-1.json | jq .
 cat results/token_usage/pipeline_aggregated_*.json | jq '.summary'
 ```
 
-## 3. Creating Predefined conversations
+**Quick Testing with Makefile Targets**
+
+For rapid integration testing, the project provides convenient makefile targets to run evaluations:
+
+```bash
+# Run a short integration test (faster, for quick validation)
+make test-short-resp-integration-request-mgr
+
+# Run a comprehensive integration test (longer, more thorough)
+make test-long-resp-integration-request-mgr
+```
+
+The target for the longer integration was used throughout the development of the quickstart to identify if any regressions had been introduced by changes, and to iteratively improve the agent prompts.
+
+The target for the longer integration run was used in CI to validate the basic operation of the self service agent for every PR.
+
+## 3. Creating Predefined Conversations
 
 Predefined conversations are hand-crafted test cases that define specific user flows to test your agent. This section explains how to create and organize predefined conversations for systematic testing.
 
@@ -677,7 +695,7 @@ Every predefined conversation consists of two main sections:
 }
 ```
 
-### 3.2 Predefined Conversations
+### 3.2 Storing Predefined Conversations
 
 Predefined conversations are stored in specific directories and follow naming conventions that make them easy to identify and manage.
 
@@ -724,7 +742,7 @@ To create a new predefined conversation:
 3. **Ensure the user ID exists** in `authoritative_user_ids`
 
 The MCP servers used to look up employee laptop information only
-have information for the users specified in the `authoritative_user_ids` file
+have information for the users specified in the `authoritative_user_ids` file,
 so all conversations must specify one of these users
 
 ### 3.3 User IDs and Authentication
@@ -1292,7 +1310,7 @@ ConversationalGolden(
 - **scenario**: Description of the user's goal and the expected interaction flow
   - Guides the simulator LLM to generate appropriate user messages
   - Should describe the complete user journey from start to finish
-  - Can include specific behaviors.
+  - Can include specific behaviors or constraints
 
 - **expected_outcome**: What success looks like for this conversation
   - Helps the simulator understand when the conversation should conclude
@@ -1417,6 +1435,14 @@ From an actual evaluation:
 
 For the self service agent quickstart we use three built-in conversational metrics from DeepEval that assess fundamental conversation quality.
 
+**Standard Metrics Summary:**
+
+- **Turn Relevancy** - Measures whether assistant responses are relevant to user messages and context
+- **Role Adherence** - Evaluates whether the assistant maintains its defined role throughout the conversation
+- **Conversation Completeness** - Assesses whether the conversation reaches a satisfactory conclusion
+
+---
+
 #### Turn Relevancy
 
 **Purpose**: Measures whether each assistant response is relevant to the user's message and conversation context.
@@ -1440,6 +1466,8 @@ For the self service agent quickstart we use three built-in conversational metri
 ```
 
 This metric caught the agent misunderstanding the user's laptop selection.
+
+---
 
 #### Role Adherence
 
@@ -1472,6 +1500,8 @@ company policy and the specific context of their request."
 ```
 
 This metric detected the agent accidentally speaking as the user instead of maintaining its support role.
+
+---
 
 #### Conversation Completeness
 
@@ -1647,7 +1677,7 @@ evaluation_steps=[
 ```python
 evaluation_steps=[
     "Check if the conversation ends with DONEDONEDONE or the agent returning a
-     service now ticket number to the user. If the ends in any other way the
+     service now ticket number to the user. If it ends in any other way, the
      conversation failed"
 ]
 ```
@@ -1710,7 +1740,7 @@ evaluation_steps=[
 ```python
 evaluation_steps=[
     f"Validate that if the agent states the number of years after which laptops
-      are refreshed, what is says is consistent with the additional context. It is
+      are refreshed, what it says is consistent with the additional context. It is
       ok if the user is not yet eligible. Do not assess anything other than the
       number of years stated.\n\nadditional-context-start\n{default_context}\nadditional-context-end",
 ]
@@ -1821,7 +1851,7 @@ evaluation_steps=[
 
 It is often useful to use additional context in an eval. This allows metrics to validate agent responses against specific business rules, policies, and data that aren't visible in the conversation itself.
 
-### 8.1 Self Service Laptop additional context
+### 8.1 Self Service Laptop Additional Context
 
 In the evaluations for this quickstart we have used additional context for 2 of the evaluations.  This additional context includes the full text used to generate the RAG database which contains information about the laptop policy and offerings. These are copied over from the directories used to populate the RAG database.
 
@@ -2293,448 +2323,4 @@ results/token_usage/
 **Aggregated File Format**:
 
 The `pipeline_aggregated_*.json` file combines all component statistics with per-script breakdowns, detailed call logs, and maximum values across all pipeline steps.
-
-## 11. Understanding Results
-
-The evaluation framework produces three categories of output files that help you understand agent performance, identify issues, and track costs. This section explains how to interpret these results and use them to improve your agent.
-
-**Result Categories**:
-
-1. **Conversation Results**: Complete conversation transcripts showing user inputs and agent responses
-2. **Evaluation Results**: Detailed metric-by-metric analysis with scores and explanations
-3. **Token Usage**: Cost tracking for both agent and evaluation LLM usage
-
-Understanding these results allows you to:
-- Identify specific conversations where the agent failed
-- Understand which metrics are failing and why
-- Compare performance across different test runs
-- Estimate costs for agent operation and evaluation
-
-### 11.1 Conversation Results
-
-The `results/conversation_results/` directory contains complete conversation transcripts captured during evaluation runs. These files show exactly what happened in each conversation, including both user messages and agent responses.
-
-**Directory Structure**
-
-```
-results/conversation_results/
-├── success-flow-1.json                    # From predefined conversation
-├── known_good_flow.json                   # From predefined conversation
-├── generated_flow_1_20251010_143521.json  # AI-generated
-├── generated_flow_2_20251010_143612.json  # AI-generated
-└── ...
-```
-
-**File Naming Conventions**:
-
-- **Predefined conversations**: Filename matches the predefined conversation name (e.g., `success-flow-1.json`)
-- **Generated conversations**: Prefix `generated_flow_` followed by number and timestamp
-- **All files**: JSON format with `.json` extension
-
-**Conversation File Structure**
-
-Each conversation file contains metadata and the complete message exchange:
-
-```json
-{
-  "metadata": {
-    "authoritative_user_id": "alice.johnson@company.com",
-    "description": "Test results from success-flow-1.json"
-  },
-  "conversation": [
-    {
-      "role": "assistant",
-      "content": "Hello! I'm the IT Support routing agent. I can help with laptop refresh requests..."
-    },
-    {
-      "role": "user",
-      "content": "refresh"
-    },
-    {
-      "role": "assistant",
-      "content": "Your laptop, a Latitude 7420, was purchased on 2020-01-15. It is now over 3 years old..."
-    },
-    {
-      "role": "user",
-      "content": "I would like to see the options"
-    },
-    {
-      "role": "assistant",
-      "content": "Here are the available laptop options for your location (NA):\n\n1. Dell Latitude 7430..."
-    }
-  ]
-}
-```
-
-**Metadata Fields**:
-
-- **`authoritative_user_id`**: The user identity used for this test conversation
-  - Matches an entry from `conversations_config/authoritative_user_ids`
-  - Used to retrieve user-specific data (location, current laptop, etc.)
-
-- **`description`**: Human-readable description of the conversation
-  - For predefined: Describes the test scenario
-  - For generated: Generic description indicating AI generation
-
-**Conversation Array**:
-
-- **Sequential order**: Messages appear in chronological order
-- **Role field**: Either `"user"` or `"assistant"`
-- **Content field**: Complete text of the message
-- **Captures reality**: Shows actual agent responses, not expected/ideal responses
-
-### 11.2 Evaluation Results
-
-The `results/deep_eval_results/` directory contains detailed metric-by-metric evaluation reports for each conversation. These files show scores, pass/fail status, and detailed reasoning for why each metric passed or failed.
-
-**Directory Structure**
-
-```
-results/deep_eval_results/
-├── deepeval_success-flow-1.json              # Individual evaluation
-├── deepeval_known_good_flow.json             # Individual evaluation
-├── deepeval_generated_flow_1_*.json          # Individual evaluation
-├── deepeval_generated_flow_2_*.json          # Individual evaluation
-├── ...
-└── deepeval_all_results.json                 # Combined results
-```
-
-**File Naming Conventions**:
-
-- **Individual files**: Prefix `deepeval_` + conversation filename
-- **Combined file**: `deepeval_all_results.json` contains aggregated results
-- **All files**: JSON format
-
-**Individual Evaluation File Structure**
-
-Each individual evaluation file contains comprehensive metric results:
-
-```json
-{
-  "conversation_file": "success-flow-1.json",
-  "authoritative_user_id": "alice.johnson@company.com",
-  "evaluation_status": "success",
-  "metrics": [
-    {
-      "metric": "Turn Relevancy",
-      "score": 1.0,
-      "threshold": 0.8,
-      "success": true,
-      "reason": "All turns are relevant to the conversation context..."
-    },
-    {
-      "metric": "Ticket number validation [Conversational GEval]",
-      "score": 1.0,
-      "threshold": 1.0,
-      "success": true,
-      "reason": "The ticket number REQ0012345 correctly starts with 'REQ'..."
-    },
-    {
-      "metric": "Correct laptop options for user location [Conversational GEval]",
-      "score": 1.0,
-      "threshold": 1.0,
-      "success": true,
-      "reason": "All four laptop models for NA region were presented..."
-    }
-  ],
-  "pass_rate": "13/13 (100.0%)",
-  "overall_success": true
-}
-```
-
-**Metric Object Fields**:
-
-- **`metric`**: Name of the evaluation metric
-- **`score`**: Numerical score (typically 0.0 to 1.0)
-- **`threshold`**: Minimum score required to pass
-- **`success`**: Boolean - whether score met threshold
-- **`reason`**: Detailed explanation from the evaluating LLM
-
-**Combined Results File Structure**
-
-The `deepeval_all_results.json` file aggregates all individual evaluations:
-
-```json
-{
-  "successful_evaluations": [
-    {
-      "file": "success-flow-1.json",
-      "pass_rate": "13/13 (100.0%)",
-      "failed_metrics": []
-    },
-    {
-      "file": "known_good_flow.json",
-      "pass_rate": "13/13 (100.0%)",
-      "failed_metrics": []
-    }
-  ],
-  "failed_evaluations": [
-    {
-      "file": "incomplete.json",
-      "pass_rate": "10/14 (71.4%)",
-      "failed_metrics": [
-        {
-          "metric": "Turn Relevancy",
-          "score": 0.75,
-          "threshold": 0.8,
-          "reason": "The LLM responded 'Ok we are done now' which abruptly ended..."
-        },
-        {
-          "metric": "Flow termination [Conversational GEval]",
-          "score": 0.0,
-          "threshold": 0.8,
-          "reason": "The conversation does not end with DONEDONEDONE or ticket number..."
-        }
-      ]
-    }
-  ],
-  "overall_statistics": {
-    "total_conversations": 3,
-    "successful_conversations": 2,
-    "failed_conversations": 1,
-    "success_rate": "66.7%",
-    "overall_metric_pass_rate": "36/39 (92.3%)"
-  }
-}
-```
-
-### 11.3 Reading Evaluation Reports
-
-When the evaluation pipeline completes, it prints comprehensive reports to the console. Understanding these reports helps you quickly identify issues and track progress.
-
-**Metric Breakdown Section**
-
-For each evaluated conversation, you'll see a metric breakdown showing individual metric performance:
-
-```
-============================================================
-RESULTS FOR: success-flow-1.json
-============================================================
-📊 METRIC BREAKDOWN:
-   ✅ PASS Turn Relevancy: 1.000 (threshold: 0.8)
-   ✅ PASS Role Adherence: 1.000 (threshold: 0.5)
-   ✅ PASS Conversation Completeness: 1.000 (threshold: 0.8)
-   ✅ PASS Information Gathering [Conversational GEval]: 0.800 (threshold: 0.8)
-   ✅ PASS Policy Compliance [Conversational GEval]: 1.000 (threshold: 0.8)
-   ✅ PASS Option Presentation [Conversational GEval]: 0.900 (threshold: 0.8)
-   ✅ PASS Process Completion [Conversational GEval]: 1.000 (threshold: 0.8)
-   ✅ PASS User Experience [Conversational GEval]: 1.000 (threshold: 0.8)
-   ✅ PASS Flow termination [Conversational GEval]: 1.000 (threshold: 0.8)
-   ✅ PASS Ticket number validation [Conversational GEval]: 1.000 (threshold: 1.0)
-   ✅ PASS Correct eligibility validation [Conversational GEval]: 1.000 (threshold: 1.0)
-   ✅ PASS No errors reported by agent [Conversational GEval]: 1.000 (threshold: 1.0)
-   ✅ PASS Correct laptop options for user location [Conversational GEval]: 1.000 (threshold: 1.0)
-
-   📈 PASS RATE: 13/13 (100.0%)
-```
-
-**Understanding Pass/Fail Status**:
-
-- **✅ PASS**: Metric score met or exceeded the threshold
-- **❌ FAIL**: Metric score fell below the threshold
-- **Score format**: `score (threshold: required_score)`
-  - Example: `1.000 (threshold: 0.8)` means score of 1.0 when 0.8 was required
-  - Example: `0.750 (threshold: 0.8)` means score of 0.75 when 0.8 was required (FAIL)
-
-**Pass Rate Calculation**:
-
-The pass rate shows the fraction of metrics that passed:
-- Format: `passed/total (percentage%)`
-- Example: `13/13 (100.0%)` means all 13 metrics passed
-- Example: `10/14 (71.4%)` means 10 out of 14 metrics passed
-
-**Example Score Interpretations**:
-
-```
-✅ PASS Turn Relevancy: 1.000 (threshold: 0.8)
-   → Perfect score, all turns highly relevant
-
-✅ PASS Information Gathering: 0.800 (threshold: 0.8)
-   → Minimum passing score, barely acceptable
-
-❌ FAIL Turn Relevancy: 0.750 (threshold: 0.8)
-   → Close to passing but below threshold
-
-❌ FAIL Policy Compliance: 0.000 (threshold: 0.8)
-   → Complete failure, major policy violation
-```
-
-**Reason Analysis**
-
-Each metric includes a detailed explanation of its score. Understanding these reasons helps you identify specific issues:
-
-**Example 1: Successful Metric**
-
-```
-✅ PASS Ticket number validation [Conversational GEval]: 1.000 (threshold: 1.0)
-   Reason: The ticket number REQ0012345 correctly starts with 'REQ' as required
-   by the evaluation steps, meeting the criteria for valid ServiceNow request tickets.
-```
-
-**What to learn**: The agent correctly formatted the ticket number with the REQ prefix.
-
-**Example 2: Failed Metric with Clear Issue**
-
-```
-❌ FAIL Ticket number validation [Conversational GEval]: 0.000 (threshold: 1.0)
-   Reason: The conversation does not mention the ticket number, so it's impossible
-   to verify if the first three characters are 'REQ' as required by the evaluation steps.
-```
-
-**What to learn**: The agent never provided a ticket number. This indicates the conversation ended prematurely or the agent failed to create a ticket.
-
-**Example 3: Failed Metric with Detailed Explanation**
-
-```
-❌ FAIL Turn Relevancy: 0.500 (threshold: 0.8)
-   Reason: The score is 0.5 because the LLM incorrectly stated the user selected
-   the 'Apple MacBook Air M2' in messages 3 and 4, when in fact the user had
-   selected 'option 3, the Lenovo ThinkPad T14 Gen 4 Intel', indicating a
-   significant mistake in the LLM's understanding of the user's selection.
-```
-
-**What to learn**: The agent misunderstood which laptop the user selected, confirming the wrong option. This is a critical error affecting user experience.
-
-**Example 4: Failed Metric with Policy Violation**
-
-```
-❌ FAIL Policy Compliance [Conversational GEval]: 0.000 (threshold: 0.8)
-   Reason: The conversation completely fails to meet the criteria because the
-   assistant incorrectly determines the user's eligibility for a laptop refresh,
-   stating the laptop is eligible when it is only 2 years and 11 months old,
-   which is less than the 3-year refresh cycle specified in the policy.
-```
-
-**What to learn**: The agent incorrectly approved a refresh request that should have been denied based on policy. The laptop age calculation or policy check is faulty.
-
-**Using Reasons for Debugging**:
-
-1. **Read the reason carefully**: It often pinpoints the exact conversation turn with the problem
-2. **Cross-reference with conversation**: Open the conversation file to see the full context
-3. **Identify patterns**: If multiple conversations fail the same metric with similar reasons, there's a systematic issue
-4. **Prioritize fixes**: Focus on failures with `0.000` scores first - these are complete failures
-
-### 11.4 Summary Reports
-
-After evaluating all conversations, the framework prints comprehensive summary reports showing overall performance, per-metric statistics, and categorization of results.
-
-**Overall Results Summary**
-
-The top-level summary provides high-level statistics:
-
-```
-================================================================================
-🏆 DEEPEVAL CONVERSATION EVALUATION RESULTS
-================================================================================
-📊 OVERVIEW:
-   • Total conversations evaluated: 9
-   • Successful evaluations: 9
-   • Failed evaluations: 0
-   • Success rate: 100.0%
-   • Overall metric pass rate: 97/126 (77.0%)
-   • Individual metric performance:
-     ⚠️ Turn Relevancy: 6/9 (66.7%)
-     ✅ Role Adherence: 8/9 (88.9%)
-     ⚠️ Conversation Completeness: 7/9 (77.8%)
-     ⚠️ Information Gathering [Conversational GEval]: 7/9 (77.8%)
-     ✅ Policy Compliance [Conversational GEval]: 8/9 (88.9%)
-     ✅ Option Presentation [Conversational GEval]: 8/9 (88.9%)
-     ⚠️ Process Completion [Conversational GEval]: 7/9 (77.8%)
-     ✅ User Experience [Conversational GEval]: 8/9 (88.9%)
-     ✅ Flow termination [Conversational GEval]: 8/9 (88.9%)
-     ⚠️ Ticket number validation [Conversational GEval]: 6/9 (66.7%)
-     ✅ Correct eligibility validation [Conversational GEval]: 9/9 (100.0%)
-     ⚠️ No errors reported by agent [Conversational GEval]: 7/9 (77.8%)
-     ⚠️ Correct laptop options for user location [Conversational GEval]: 5/9 (55.6%)
-     ❌ Employee id requested [Conversational GEval]: 3/9 (33.3%)
-   • Status: ⚠️ SOME EVALUATIONS FAILED
-```
-
-**Understanding Overall Pass Rates**:
-
-- **Total conversations evaluated**: Number of conversation files processed
-- **Successful evaluations**: Conversations where all metrics passed
-- **Failed evaluations**: Conversations where at least one metric failed
-- **Success rate**: Percentage of conversations that passed all metrics
-- **Overall metric pass rate**: Total metrics passed across all conversations
-  - Format: `passed/total (percentage%)`
-  - Example: `97/126 (77.0%)` means 97 metrics passed out of 126 total metric evaluations
-
-**Per-Metric Statistics**
-
-Each metric shows its performance across all conversations:
-
-**Indicator Meanings**:
-- **✅**: Metric passed for most conversations (≥80%)
-- **⚠️**: Metric failed for some conversations (50-79%)
-- **❌**: Metric failed for many conversations (<50%)
-
-**Example Analysis**:
-
-```
-✅ Correct eligibility validation [Conversational GEval]: 9/9 (100.0%)
-```
-- **Interpretation**: This metric passed for all 9 conversations
-- **Conclusion**: The agent consistently states the correct 3-year refresh policy
-
-```
-⚠️ Turn Relevancy: 6/9 (66.7%)
-```
-- **Interpretation**: This metric failed for 3 out of 9 conversations
-- **Conclusion**: In some conversations, the agent gave irrelevant responses
-- **Action**: Review the 3 failed conversations to identify the pattern
-
-```
-❌ Employee id requested [Conversational GEval]: 3/9 (33.3%)
-```
-- **Interpretation**: This metric failed for 6 out of 9 conversations
-- **Conclusion**: The agent frequently forgets to ask for employee ID
-- **Action**: This is a systematic issue requiring immediate attention
-
-**Failed Evaluations Section**
-
-The summary lists all conversations that failed any metrics:
-
-```
-──────────────────────────────────────────────────
-
-🏁 CONVERSATION RESULTS:
-   ⚠️ missing-employee-id-prompt.json: 1/14 metrics failed (7.1%)
-      Failed metrics:
-        • Employee id requested [Conversational GEval] (score: 0.000) - The assistant does not ask for the user's employee ID...
-
-   ⚠️ incomplete.json: 4/14 metrics failed (28.6%)
-      Failed metrics:
-        • Turn Relevancy (score: 0.750) - The LLM responded 'Ok we are done now' which abruptly ended...
-        • Flow termination [Conversational GEval] (score: 0.000) - Does not end with DONEDONEDONE...
-        • Ticket number validation [Conversational GEval] (score: 0.000) - No ticket number mentioned...
-        • Employee id requested [Conversational GEval] (score: 0.000) - Never asks for employee ID...
-
-   ❌ allowed_invalid_user-laptop-selection.json: 11/14 metrics failed (78.6%)
-      Failed metrics:
-        • Turn Relevancy (score: 0.667) - Proceeded despite invalid selection...
-        • Role Adherence (score: 0.333) - Responded as user instead of agent...
-        [9 more failed metrics...]
-```
-
-**Success/Failure Categorization**
-
-The final summary categorizes all conversations:
-
-```
-📊 CONVERSATION SUMMARY:
-   • Total conversations: 9
-   • Passing conversations: 0
-   • Failing conversations: 9
-
-❌ FAILING CONVERSATIONS:
-   • missing-employee-id-prompt.json: 1/14 metrics failed (7.1%)
-   • not-all-laptop-options.json: 1/14 metrics failed (7.1%)
-   • no-ticket-number.json: 2/14 metrics failed (14.3%)
-   • incomplete.json: 4/14 metrics failed (28.6%)
-   • wrong-selection.json: 6/14 metrics failed (42.9%)
-   • allowed_invalid_user-laptop-selection.json: 11/14 metrics failed (78.6%)
-
-🎉 OVERALL RESULT: 9/9 KNOWN BAD CONVERSATIONS FAILED AS EXPECTED
-```
 
