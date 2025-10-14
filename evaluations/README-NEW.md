@@ -39,15 +39,13 @@ The evaluation framework consists of four main components that work together in 
    - Manages cleanup of previous test runs
    - Aggregates results and token usage statistics
    - Provides unified command-line interface
-   - Handles error recovery and reporting
 
 2. **`run_conversations.py`** - Live Agent Testing with Pre-defined Inputs
-   - Executes pre-defined conversation templates against deployed agent
-   - Uses hand-crafted user inputs from conversation templates
+   - Executes pre-defined conversations against deployed agent
+   - Uses hand-crafted user inputs from conversations
    - Connects to deployed agents via OpenShift
    - Captures real agent responses
    - Saves complete conversation transcripts
-   - Tracks token usage from agent interactions
 
 3. **`generator.py`** - Live Agent Testing with AI-Generated Inputs
    - Tests deployed agent with AI-generated user inputs
@@ -55,15 +53,12 @@ The evaluation framework consists of four main components that work together in 
    - Uses DeepEval's conversation simulator to generate user messages
    - Sends generated inputs to actual deployed agent
    - Captures real agent responses for each simulated user turn
-   - Creates conversations with configurable length and complexity
-   - Produces timestamped conversation files
 
 4. **`deep_eval.py`** - Metrics-Based Evaluation
    - Applies comprehensive evaluation metrics to conversations
    - Uses LLM-based assessment for nuanced quality checks
    - Generates individual and aggregate evaluation reports
    - Provides detailed pass/fail analysis with scoring
-   - Supports both standard and custom metrics
 
 **How Components Work Together**
 
@@ -77,7 +72,7 @@ The typical evaluation workflow follows this sequence:
    - Clear old token usage files
    ↓
 3. run_conversations.py
-   - Execute pre-defined conversation templates
+   - Execute pre-defined conversations
    - Save results to results/conversation_results/
    ↓
 4. generator.py
@@ -179,13 +174,10 @@ The evaluation framework requires a running instance of the self-service agent i
 
 **LLM API Access**
 
-The framework requires access to an LLM API for two purposes:
+The framework requires access to an OpenAI compatible LLM endpoint for two purposes:
 
 1. **Conversation Generation**: Simulating realistic user behavior (uses `generator.py`)
 2. **Evaluation Metrics**: Assessing conversation quality with LLM-based metrics (uses `deep_eval.py`)
-
-Supported API types:
-- OpenAI-compatible endpoints
 
 **Environment Variables Needed**
 
@@ -239,8 +231,6 @@ Pre-defined conversations are hand-crafted test cases that validate critical use
 
 - **Curated scenarios**: Carefully designed to test specific agent capabilities
 - **Consistent baseline**: Same conversations run every time for regression testing
-- **Version controlled**: Tracked in git for change management
-- **Deterministic**: Produce repeatable results for comparison across runs
 - **Human-verified**: Created by developers/QA who understand business requirements
 
 **Example Structure:**
@@ -261,10 +251,6 @@ Pre-defined conversations are hand-crafted test cases that validate critical use
 }
 ```
 
-**Special Subdirectory:**
-
-- `conversations_config/conversations/no-employee-id/`: Alternative conversation templates for testing agents that don't require employee ID collection (uses authenticated user identity instead)
-
 #### Generated Conversations
 
 **Location**: Created in `results/conversation_results/` with prefix `generated_flow_`
@@ -276,8 +262,6 @@ Generated conversations are synthetic test cases created automatically by the `g
 - **AI-generated**: Created using LLM to simulate realistic user responses
 - **Scalable coverage**: Generate 10s or 100s of conversations in a single run
 - **Realistic variation**: Different user behaviors, phrasings, and interaction patterns
-- **Diverse scenarios**: Covers scenarios that manual testers might not think of
-- **Timestamped**: Each generation creates unique files with timestamps
 
 **How It Works:**
 
@@ -298,14 +282,6 @@ python generator.py 20 --max-turns 30
 # - generated_flow_2_20251009_143612.json
 # - generated_flow_3_20251009_143705.json
 ```
-
-**Customization:**
-
-You can customize generated conversations by modifying:
-- Scenario descriptions (what situation the user is in)
-- User descriptions (employee ID, behavior characteristics)
-- Maximum turns (conversation length)
-- Random seed (for reproducible generation)
 
 #### Known Bad Conversations
 
@@ -330,38 +306,6 @@ python evaluate.py --check
 # - Exit code indicates problems were detected
 ```
 
-**Exit Codes:**
-
-- Exit code 0: Known bad conversations failed as expected (GOOD)
-- Exit code 1: Known bad conversations passed unexpectedly (BAD - metrics aren't working)
-
-**Creating Known Bad Conversations:**
-
-When you find a problematic conversation:
-
-1. Save the conversation file to `results/known_bad_conversation_results/`
-2. Document what's wrong in the filename or metadata
-3. Run `python evaluate.py --check` to verify metrics detect the issue
-4. Use as regression test to prevent similar issues
-
-**Example:**
-
-```json
-{
-    "metadata": {
-        "authoritative_user_id": "test.user@company.com",
-        "description": "Agent returns wrong ticket format - should fail"
-    },
-    "conversation": [
-        {"role": "user", "content": "I need a new laptop"},
-        {"role": "assistant", "content": "I've created ticket INC0123456 for you"},
-        {"role": "assistant", "content": "DONEDONEDONE"}
-    ]
-}
-```
-
-This conversation should fail the "Ticket number validation" metric because the ticket starts with "INC" instead of "REQ".
-
 ## 2. Quick Start
 
 This section will guide you through installing the evaluation framework, configuring your environment, and running your first evaluation.
@@ -380,14 +324,6 @@ cd evaluations/
 # Note: uv automatically creates a .venv directory if it doesn't exist
 uv sync
 ```
-
-**What Gets Installed**
-
-The `uv sync` command installs:
-
-**Core dependencies:**
-- `deepeval>=3.3.9` - Evaluation framework for conversational AI
-- `openai>=1.99.0` - LLM API client library
 
 **Verify Installation**
 
@@ -488,7 +424,7 @@ The `evaluate.py` script orchestrates the complete evaluation pipeline:
 
 ```bash
 # Run the complete evaluation pipeline with default settings
-# - Executes predefined conversation templates
+# - Executes predefined conversations
 # - Generates 20 additional synthetic conversations
 # - Evaluates all conversations with comprehensive metrics
 python evaluate.py
@@ -508,9 +444,6 @@ python evaluate.py --max-turns 30
 
 # Use a different test script in OpenShift
 python evaluate.py --test-script my_agent.py
-
-# Skip employee ID collection checks
-python evaluate.py --no-employee-id
 
 # Test known bad conversations (validation check)
 python evaluate.py --check
@@ -631,8 +564,8 @@ The evaluation pipeline creates results in the `results/` directory:
 ```
 results/
 ├── conversation_results/          # Conversation transcripts
-│   ├── success-flow-1.json       # From predefined templates
-│   ├── known_good_flow.json      # From predefined templates
+│   ├── success-flow-1.json       # From predefined conversations
+│   ├── known_good_flow.json      # From predefined conversations
 │   ├── generated_flow_1_*.json   # AI-generated conversations
 │   ├── generated_flow_2_*.json
 │   └── ...
@@ -683,13 +616,13 @@ cat results/conversation_results/success-flow-1.json | jq .
 cat results/token_usage/pipeline_aggregated_*.json | jq '.summary'
 ```
 
-## 3. Creating Conversation Templates
+## 3. Creating Pre-defined conversations
 
-Conversation templates are hand-crafted test cases that define specific user flows to test your agent. This section explains how to create and organize conversation templates for systematic testing.
+Pre-defined conversations are hand-crafted test cases that define specific user flows to test your agent. This section explains how to create and organize pre-defined conversations for systematic testing.
 
 ### 3.1 Template Format
 
-Conversation templates are JSON files with a simple, standardized structure that defines metadata and the conversation flow.
+Pre-definfed conversations are JSON files with a simple, standardized structure that defines metadata and the conversation flow.
 
 **Basic Structure**
 
@@ -800,7 +733,7 @@ The evaluation framework uses authoritative user IDs to simulate different users
 
 **Authoritative User IDs File**
 
-The `authoritative_user_ids` file contains a list of valid user email addresses that can be used in conversation templates:
+The `authoritative_user_ids` file contains a list of valid user email addresses that can be used in pre-defined conversations:
 
 **Location**: `conversations_config/authoritative_user_ids`
 
@@ -991,11 +924,11 @@ When you find a problematic conversation during testing:
 
 ## 4. Running Conversations
 
-The `run_conversations.py` script executes pre-defined conversation templates against your deployed agent. This section explains how to use the script, configure its behavior, and understand the results it produces.
+The `run_conversations.py` script executes pre-defined conversations against your deployed agent. This section explains how to use the script, configure its behavior, and understand the results it produces.
 
 ### 4.1 Using run_conversations.py
 
-The `run_conversations.py` script is the first step in the evaluation pipeline. It takes hand-crafted conversation templates and executes them against your live agent deployment in OpenShift.
+The `run_conversations.py` script is the first step in the evaluation pipeline. It takes hand-crafted conversations and executes them against your live agent deployment in OpenShift.
 
 **Basic Usage**
 
@@ -1004,7 +937,7 @@ The `run_conversations.py` script is the first step in the evaluation pipeline. 
 python run_conversations.py
 
 # This will:
-# 1. Load all templates from conversations_config/conversations/
+# 1. Load all pre-defined conversations from conversations_config/conversations/
 # 2. Execute each conversation against the deployed agent
 # 3. Save results to results/conversation_results/
 # 4. Track and report token usage
@@ -2132,12 +2065,12 @@ Removing 8 token usage files from previous runs
 
 #### Step 1: Run Predefined Conversations
 
-**What It Does**: Executes hand-crafted conversation templates against the deployed agent.
+**What It Does**: Executes hand-crafted conversations against the deployed agent.
 
 **Script**: `run_conversations.py`
 
 **Input**:
-- Conversation templates from `conversations_config/conversations/`
+- Conversations from `conversations_config/conversations/`
 - Authoritative user IDs from `conversations_config/authoritative_user_ids`
 
 **Output**:
