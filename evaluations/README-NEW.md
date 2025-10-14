@@ -950,16 +950,6 @@ response = session.send_message("yes")     # Continue conversation
 session.close_session()                    # Clean up
 ```
 
-**OpenShift Prerequisites**
-
-For the integration to work, ensure:
-
-- `oc` command is installed and in your PATH
-- You're logged into the correct OpenShift cluster (`oc login`)
-- You're in the correct namespace (`oc project your-namespace`)
-- Agent pods are running and accessible
-- You have exec permissions on the deployment
-
 **Connection Command**
 
 The framework executes a command similar to:
@@ -1153,27 +1143,9 @@ The token usage file contains:
 }
 ```
 
-**Reading Results**
-
-To examine the conversation results:
-
-```bash
-# View a specific conversation
-cat results/conversation_results/success-flow-1.json | jq .
-
-# Count conversation turns
-cat results/conversation_results/success-flow-1.json | jq '.conversation | length'
-
-# Extract all user messages
-cat results/conversation_results/success-flow-1.json | jq '.conversation[] | select(.role == "user") | .content'
-
-# Extract all agent responses
-cat results/conversation_results/success-flow-1.json | jq '.conversation[] | select(.role == "assistant") | .content'
-```
-
 ## 6. Generating Synthetic Conversations
 
-The `generator.py` script creates AI-generated test conversations by simulating realistic user behavior at scale. This section explains how synthetic conversation generation works and how to customize it for your testing needs.
+The `generator.py` script creates AI-generated test conversations by simulating realistic user behavior. This section explains how synthetic conversation generation works and how to customize it for your testing needs.
 
 ### 6.1 Using generator.py
 
@@ -1286,17 +1258,17 @@ The generator uses a two-LLM architecture:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    generator.py Process                      │
+│                    generator.py Process                     │
 ├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ConversationSimulator (DeepEval)                            │
-│  ├── Simulator LLM (User Behavior)                           │
-│  │   └── Generates: "I need a laptop refresh"                │
-│  │                                                            │
-│  └── model_callback (OpenShift Client)                       │
-│      └── Sends to: Deployed Agent → Get Real Response        │
-│                                                               │
-│  Repeat until: Conversation completes or max turns reached   │
+│                                                             │
+│  ConversationSimulator (DeepEval)                           │
+│  ├── Simulator LLM (User Behavior)                          │
+│  │   └── Generates: "I need a laptop refresh"               │
+│  │                                                          │
+│  └── model_callback (OpenShift Client)                      │
+│      └── Sends to: Deployed Agent → Get Real Response       │
+│                                                             │
+│  Repeat until: Conversation completes or max turns reached  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -1347,21 +1319,7 @@ async def _model_callback(input: str, turns: List[Turn], thread_id: str) -> Turn
     return Turn(role="assistant", content=response)
 ```
 
-**Flow:**
-
-1. Simulator generates a user message
-2. `model_callback` receives the message
-3. Message is sent to deployed agent via OpenShift `oc exec`
-4. Agent processes and responds
-5. Response is returned to simulator
-6. Simulator uses response to generate next user message
-7. Process repeats until conversation completes or `max_turns` reached
-
 ### 6.3 Generated File Naming
-
-Generated conversations are saved with timestamped filenames to ensure uniqueness and traceability.
-
-**Filename Format**
 
 Generated conversation files follow this naming pattern:
 
@@ -1375,13 +1333,6 @@ Where:
 - **`{timestamp}`**: Generation timestamp in `YYYYMMDD_HHMMSS` format
 - **`.json`**: File extension
 
-**Examples:**
-
-```
-generated_flow_1_20251010_143521.json
-generated_flow_2_20251010_143612.json
-generated_flow_3_20251010_143705.json
-```
 
 **File Location**
 
@@ -1440,14 +1391,6 @@ Each metric evaluates a conversation and returns:
 2. **Success**: Boolean indicating whether the score meets the threshold
 3. **Reason**: Detailed explanation of why the metric passed or failed
 
-**Threshold Values**
-
-Every metric has a threshold that determines pass/fail status:
-
-- **Threshold 0.5**: Lenient - allows moderate quality (50% or better)
-- **Threshold 0.8**: Standard - requires good quality (80% or better)
-- **Threshold 1.0**: Strict - requires perfect quality (100%)
-
 **LLM-Based Assessment**
 
 Metrics use an LLM to evaluate conversations by:
@@ -1472,7 +1415,7 @@ From an actual evaluation:
 
 ### 7.2 Standard Conversation Metrics
 
-We use three built-in conversational metrics from DeepEval that assess fundamental conversation quality.
+For the self service agent quickstart we use three built-in conversational metrics from DeepEval that assess fundamental conversation quality.
 
 #### Turn Relevancy
 
@@ -1558,6 +1501,22 @@ This metric identified an incomplete conversation where the agent didn't properl
 
 For the laptop refresh use case we defined custom ConversationalGEval metrics designed specifically for laptop refresh conversations. These metrics check the domain-specific business requirements. These metrics are defined in `get_deepeval_metrics.py`
 
+**Custom Metrics Summary:**
+
+- **Information Gathering** - Validates collection of necessary laptop and user information
+- **Policy Compliance** - Verifies correct application of refresh policies
+- **Option Presentation** - Assesses quality of laptop option presentation
+- **Process Completion** - Evaluates end-to-end process guidance
+- **User Experience** - Measures helpfulness and professionalism
+- **Flow Termination** - Validates proper conversation ending patterns
+- **Ticket Number Validation** - Ensures correct ServiceNow ticket format (REQ prefix)
+- **Correct Eligibility Validation** - Verifies accurate policy statements (3-year cycle)
+- **No Errors Reported by Agent** - Validates absence of system errors
+- **Correct Laptop Options for User Location** - Validates complete regional option lists
+- **Employee ID Requested** - Validates employee ID collection
+
+---
+
 #### Information Gathering
 
 **Purpose**: Evaluates whether the assistant collects necessary information to process the laptop refresh request.
@@ -1577,6 +1536,8 @@ evaluation_steps=[
 - Gathers current laptop information
 - Follows logical information collection sequence
 - Requests employee ID
+
+---
 
 #### Policy Compliance
 
@@ -1608,6 +1569,8 @@ evaluation_steps=[
    which is less than the 3-year refresh cycle specified in the policy.
 ```
 
+---
+
 #### Option Presentation
 
 **Purpose**: Assesses the quality and accuracy of laptop option presentation to users.
@@ -1627,6 +1590,8 @@ evaluation_steps=[
 - Presents laptops appropriate for user's geographic location
 - Provides complete specifications (CPU, RAM, storage, etc.)
 - Guides user through selection effectively
+
+---
 
 #### Process Completion
 
@@ -1648,6 +1613,8 @@ evaluation_steps=[
 - Confirms user selections before proceeding
 - Provides clear next steps
 
+---
+
 #### User Experience
 
 **Purpose**: Measures the helpfulness, professionalism, and clarity of assistant responses.
@@ -1667,6 +1634,8 @@ evaluation_steps=[
 - Helpful and professional tone
 - Clear, understandable responses
 - Effectively addresses user needs
+
+---
 
 #### Flow Termination
 
@@ -1700,6 +1669,8 @@ at a point that makes sense for the specific test conversation.
    now' which does not meet the specified criteria.
 ```
 
+---
+
 #### Ticket Number Validation
 
 **Purpose**: Ensures ServiceNow ticket numbers follow the correct format (REQ prefix).
@@ -1727,6 +1698,8 @@ evaluation_steps=[
    to verify if the first three characters are 'REQ' as required by the evaluation steps.
 ```
 
+---
+
 #### Correct Eligibility Validation
 
 **Purpose**: Verifies the agent states the correct laptop refresh cycle (3 years).
@@ -1750,6 +1723,8 @@ evaluation_steps=[
 
 This is an example of using additional context in an eval. More details are provided in the
 section titled "Context and Additional Data"
+
+---
 
 #### No Errors Reported by Agent
 
@@ -1779,6 +1754,8 @@ evaluation_steps=[
    and responded accordingly, instead of proceeding with creating a ServiceNow ticket
    without addressing the invalid option.
 ```
+
+---
 
 #### Correct Laptop Options for User Location
 
@@ -1810,6 +1787,8 @@ evaluation_steps=[
    steps require exactly four options to be presented, and one of the required
    models, 'MacBook Air M2', was missing from the list.
 ```
+
+---
 
 #### Employee ID Requested
 
