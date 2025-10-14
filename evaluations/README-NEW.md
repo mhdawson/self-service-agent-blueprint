@@ -922,84 +922,9 @@ When you find a problematic conversation during testing:
 5. **Verify metrics detect the issue** - at least one metric should fail
 6. **Commit to version control** to prevent regression
 
-## 4. Running Conversations
+## 4. Understanding OpenShift Integration
 
-The `run_conversations.py` script executes predefined conversations against your deployed agent. This section explains how to use the script, configure its behavior, and understand the results it produces.
-
-### 4.1 Using run_conversations.py
-
-The `run_conversations.py` script is the first step in the evaluation pipeline. It takes hand-crafted conversations and executes them against your live agent deployment in OpenShift.
-
-**Basic Usage**
-
-```bash
-# Run with default settings
-python run_conversations.py
-
-# This will:
-# 1. Load all predefined conversations from conversations_config/conversations/
-# 2. Execute each conversation against the deployed agent
-# 3. Save results to results/conversation_results/
-# 4. Track and report token usage
-```
-
-**Command-Line Options**
-
-The script supports several options to customize its behavior:
-
-```bash
-# Use a different test script in OpenShift
-python run_conversations.py --test-script chat-responses-request-mgr.py
-
-# Reset conversation state before each test
-python run_conversations.py --reset-conversation
-
-# Combine multiple options
-python run_conversations.py --test-script my_agent.py --reset-conversation
-```
-
-**Option Details**
-
-- `--test-script <name>`: Specifies which Python script to execute in the OpenShift pod
-  - Default: `chat.py`
-  - The script must be available in the `/app/test/` directory in the pod
-  - Common alternatives: `chat-responses-request-mgr.py` for testing with request manager
-
-- `--no-employee-id`: Uses alternative conversation files from the `no-employee-id` subdirectory
-  - Useful for testing agents that use authenticated user identity instead of collecting employee IDs
-  - Falls back to regular conversation files if no alternative exists
-
-- `--reset-conversation`: Sends a "reset" message at the start of each conversation
-  - Ensures each conversation starts with a fresh session
-  - Useful for preventing state carryover between tests
-  - The agent responds with a fresh introduction after reset
-
-**Example Run**
-
-```bash
-$ python run_conversations.py --test-script chat.py --reset-conversation
-
-INFO:helpers.run_conversation_flow:Found 2 JSON files to process
-INFO:helpers.run_conversation_flow:Processing success-flow-1.json with 4 questions using authoritative_user_id: alice.johnson@company.com
-INFO:helpers.openshift_chat_client:Sending reset message to start fresh conversation
-INFO:helpers.openshift_chat_client:Reset response: Session cleared. Starting fresh!...
-INFO:helpers.run_conversation_flow:Results saved to results/conversation_results/success-flow-1.json
-INFO:helpers.run_conversation_flow:Processing known_good_flow.json with 5 questions...
-INFO:helpers.run_conversation_flow:Results saved to results/conversation_results/known_good_flow.json
-INFO:helpers.run_conversation_flow:Flows processing completed
-
-=== Token Usage Summary ===
-
-📱 App Tokens (from chat agent):
-  Input tokens: 13,572
-  Output tokens: 1,166
-  Total tokens: 14,738
-  API calls: 6
-```
-
-### 4.2 Understanding OpenShift Integration
-
-The evaluation framework connects to your deployed agent via OpenShift's `oc exec` command. This provides a direct, interactive session with the agent.
+The evaluation framework connects to your deployed agent via OpenShift's `oc exec` command. This integration provides a direct, interactive session with the agent and is used when running both predefined conversations (Section 5) and generated conversations (Section 6) against deployed agents.
 
 **How OpenShift Sessions Work**
 
@@ -1063,7 +988,78 @@ This provides:
 - Number of LLM API calls
 - Maximum tokens in a single request
 
-### 4.3 Output Format
+## 5. Running Conversations
+
+The `run_conversations.py` script executes predefined conversations against your deployed agent. This section explains how to use the script, configure its behavior, and understand the results it produces.
+
+### 5.1 Using run_conversations.py
+
+The `run_conversations.py` script is the first step in the evaluation pipeline. It takes hand-crafted conversations and executes them against your live agent deployment in OpenShift.
+
+**Basic Usage**
+
+```bash
+# Run with default settings
+python run_conversations.py
+
+# This will:
+# 1. Load all predefined conversations from conversations_config/conversations/
+# 2. Execute each conversation against the deployed agent
+# 3. Save results to results/conversation_results/
+# 4. Track and report token usage
+```
+
+**Command-Line Options**
+
+The script supports several options to customize its behavior:
+
+```bash
+# Use a different test script in OpenShift
+python run_conversations.py --test-script chat-responses-request-mgr.py
+
+# Reset conversation state before each test
+python run_conversations.py --reset-conversation
+
+# Combine multiple options
+python run_conversations.py --test-script my_agent.py --reset-conversation
+```
+
+**Option Details**
+
+- `--test-script <name>`: Specifies which Python script to execute in the OpenShift pod
+  - Default: `chat.py`
+  - The script must be available in the `/app/test/` directory in the pod
+  - Common alternatives: `chat-responses-request-mgr.py` for testing with request manager
+
+- `--reset-conversation`: Sends a "reset" message at the start of each conversation
+  - Ensures each conversation starts with a fresh session
+  - Useful for preventing state carryover between tests
+  - The agent responds with a fresh introduction after reset
+
+**Example Run**
+
+```bash
+$ python run_conversations.py --test-script chat.py --reset-conversation
+
+INFO:helpers.run_conversation_flow:Found 2 JSON files to process
+INFO:helpers.run_conversation_flow:Processing success-flow-1.json with 4 questions using authoritative_user_id: alice.johnson@company.com
+INFO:helpers.openshift_chat_client:Sending reset message to start fresh conversation
+INFO:helpers.openshift_chat_client:Reset response: Session cleared. Starting fresh!...
+INFO:helpers.run_conversation_flow:Results saved to results/conversation_results/success-flow-1.json
+INFO:helpers.run_conversation_flow:Processing known_good_flow.json with 5 questions...
+INFO:helpers.run_conversation_flow:Results saved to results/conversation_results/known_good_flow.json
+INFO:helpers.run_conversation_flow:Flows processing completed
+
+=== Token Usage Summary ===
+
+📱 App Tokens (from chat agent):
+  Input tokens: 13,572
+  Output tokens: 1,166
+  Total tokens: 14,738
+  API calls: 6
+```
+
+### 5.2 Output Format
 
 The script produces conversation result files in JSON format, saved to `results/conversation_results/`.
 
@@ -1175,11 +1171,11 @@ cat results/conversation_results/success-flow-1.json | jq '.conversation[] | sel
 cat results/conversation_results/success-flow-1.json | jq '.conversation[] | select(.role == "assistant") | .content'
 ```
 
-## 5. Generating Synthetic Conversations
+## 6. Generating Synthetic Conversations
 
 The `generator.py` script creates AI-generated test conversations by simulating realistic user behavior at scale. This section explains how synthetic conversation generation works and how to customize it for your testing needs.
 
-### 5.1 Using generator.py
+### 6.1 Using generator.py
 
 The `generator.py` script uses DeepEval's conversation simulator to generate realistic user messages and sends them to your deployed agent, capturing the actual agent responses. This creates diverse test coverage that would be difficult to achieve with manual test case creation.
 
@@ -1277,7 +1273,7 @@ INFO:__main__:Sequential generation completed. Generated 3 total test cases
   API calls: 15
 ```
 
-### 5.2 How Conversation Generation Works
+### 6.2 How Conversation Generation Works
 
 The conversation generation system combines AI-driven user simulation with live agent testing to create realistic test scenarios.
 
@@ -1361,7 +1357,7 @@ async def _model_callback(input: str, turns: List[Turn], thread_id: str) -> Turn
 6. Simulator uses response to generate next user message
 7. Process repeats until conversation completes or `max_turns` reached
 
-### 5.3 Generated File Naming
+### 6.3 Generated File Naming
 
 Generated conversations are saved with timestamped filenames to ensure uniqueness and traceability.
 
@@ -1428,11 +1424,11 @@ Generated conversation files use the same format as predefined conversations:
 
 The structure is identical to predefined conversations, making them fully compatible with the evaluation pipeline.
 
-## 6. Evaluation Metrics
+## 7. Evaluation Metrics
 
 The evaluation framework uses a suite of metrics to assess conversation quality. This section explains what metrics measure, how they're scored, and how to create custom metrics for your specific needs.
 
-### 6.1 Understanding DeepEval Metrics
+### 7.1 Understanding DeepEval Metrics
 
 The framework uses DeepEval's metric system to evaluate conversations through LLM-based assessment. This provides nuanced quality checks that go beyond simple pattern matching.
 
@@ -1474,7 +1470,7 @@ From an actual evaluation:
    to verify if the first three characters are 'REQ' as required by the evaluation steps.
 ```
 
-### 6.2 Standard Conversation Metrics
+### 7.2 Standard Conversation Metrics
 
 We use three built-in conversational metrics from DeepEval that assess fundamental conversation quality.
 
@@ -1558,7 +1554,7 @@ This metric detected the agent accidentally speaking as the user instead of main
 
 This metric identified an incomplete conversation where the agent didn't properly handle an invalid user selection.
 
-### 6.3 Laptop Refresh-Specific Metrics
+### 7.3 Laptop Refresh-Specific Metrics
 
 For the laptop refresh use case we defined custom ConversationalGEval metrics designed specifically for laptop refresh conversations. These metrics check the domain-specific business requirements. These metrics are defined in `get_deepeval_metrics.py`
 
@@ -1580,7 +1576,7 @@ evaluation_steps=[
 **What It Checks**:
 - Gathers current laptop information
 - Follows logical information collection sequence
-- Requests employee ID (when `--no-employee-id` is not set)
+- Requests employee ID
 
 #### Policy Compliance
 
@@ -1821,8 +1817,6 @@ evaluation_steps=[
 
 **Threshold**: 1.0 (strict - must be perfect)
 
-**Conditional**: Only included when `--no-employee-id` flag is NOT set
-
 **Evaluation Steps**:
 ```python
 evaluation_steps=[
@@ -1844,11 +1838,11 @@ evaluation_steps=[
    according to the evaluation steps.
 ```
 
-## 7. Context and Additional Data
+## 8. Context and Additional Data
 
 It is often useful to use additional context in an eval. This allows metrics to validate agent responses against specific business rules, policies, and data that aren't visible in the conversation itself.
 
-### 7.1 Self Service Laptop additional context
+### 8.1 Self Service Laptop additional context
 
 In the evaluations for this quickstart we have used additional context for 2 of the evaluations.  This additional context includes the full text used to generate the RAG database which contains information about the laptop policy and offerings. These are copied over from the directories used to populate the RAG database.
 
@@ -1885,7 +1879,7 @@ def load_default_context():
 
 This loads all `.txt` files from the `default_context` directory and combines them into a single context string that's provided to metrics.
 
-### 7.2 Context in Evaluations
+### 8.2 Context in Evaluations
 
 Context files are used by evaluation metrics to validate agent responses against business rules and data that aren't visible in the conversation transcript itself.
 
@@ -1934,11 +1928,11 @@ ConversationalGEval(
 
 The evaluating LLM can compare the laptop options mentioned in the conversation against the complete list in `NA_laptop_offerings.txt`, `EMEA_laptop_offerings.txt`, etc.
 
-## 8. Running the Complete Pipeline
+## 9. Running the Complete Pipeline
 
 The `evaluate.py` script orchestrates the complete evaluation pipeline by coordinating all evaluation components in sequence. This section explains how to use the orchestrator, understand the pipeline steps, and interpret the results.
 
-### 8.1 Using evaluate.py
+### 9.1 Using evaluate.py
 
 The `evaluate.py` script is the recommended way to run evaluations. It automatically executes all pipeline steps in the correct order, manages cleanup, and aggregates results.
 
@@ -2037,7 +2031,7 @@ $ python evaluate.py -n 5 --max-turns 15
 🏁 Evaluation Pipeline Complete (Total Duration: 195.80s)
 ```
 
-### 8.2 Pipeline Steps
+### 9.2 Pipeline Steps
 
 The evaluation pipeline executes four distinct phases in sequence. Understanding each phase helps debug issues and optimize evaluation runs.
 
@@ -2141,7 +2135,7 @@ Processing generated_flow_1_*.json
 ✅ Completed: deep_eval.py (Duration: 68.23s)
 ```
 
-### 8.3 Testing Known Bad Conversations
+### 9.3 Testing Known Bad Conversations
 
 Known bad conversations serve as a regression test suite for your evaluation framework. By maintaining a collection of conversations with documented problems, you can verify that your evaluation metrics correctly detect issues.
 
@@ -2183,14 +2177,14 @@ git add results/known_bad_conversation_results/missing-ticket-number.json
 git commit -m "Add known bad case for missing ticket number"
 ```
 
-## 9. Token Usage Tracking
+## 10. Token Usage Tracking
 
 The number of tokens used both by the agent and by the evaluation framework is important to track and understand
 because it has a direct link to the cost of running the agent and doing evaluations as you develop it.
 
 The pipeline automatically tracks token usage across all components, separating agent tokens from evaluation tokens for cost analysis.
 
-### 9.1 App Tokens vs Evaluation Tokens
+### 10.1 App Tokens vs Evaluation Tokens
 
 **App Tokens** - Tokens used by the deployed agent during conversations:
 
@@ -2207,7 +2201,7 @@ The pipeline automatically tracks token usage across all components, separating 
   - `deep_eval.py` - All metric evaluations
 - **Represents**: Cost of quality assessment
 
-### 9.2 Aggregated Token Statistics
+### 10.2 Aggregated Token Statistics
 
 After pipeline completion, the orchestrator aggregates token usage from all components:
 
@@ -2272,7 +2266,7 @@ After pipeline completion, the orchestrator aggregates token usage from all comp
 4. **Average per call**: Typical request size
 5. **By script type**: Breakdown showing which component uses most tokens
 
-### 9.3 Token Usage Files
+### 10.3 Token Usage Files
 
 Token usage data is saved to JSON files for detailed analysis:
 
@@ -2321,7 +2315,7 @@ results/token_usage/
 
 The `pipeline_aggregated_*.json` file combines all component statistics with per-script breakdowns, detailed call logs, and maximum values across all pipeline steps.
 
-## 10. Understanding Results
+## 11. Understanding Results
 
 The evaluation framework produces three categories of output files that help you understand agent performance, identify issues, and track costs. This section explains how to interpret these results and use them to improve your agent.
 
@@ -2337,7 +2331,7 @@ Understanding these results allows you to:
 - Compare performance across different test runs
 - Estimate costs for agent operation and evaluation
 
-### 10.1 Conversation Results
+### 11.1 Conversation Results
 
 The `results/conversation_results/` directory contains complete conversation transcripts captured during evaluation runs. These files show exactly what happened in each conversation, including both user messages and agent responses.
 
@@ -2410,7 +2404,7 @@ Each conversation file contains metadata and the complete message exchange:
 - **Content field**: Complete text of the message
 - **Captures reality**: Shows actual agent responses, not expected/ideal responses
 
-### 10.2 Evaluation Results
+### 11.2 Evaluation Results
 
 The `results/deep_eval_results/` directory contains detailed metric-by-metric evaluation reports for each conversation. These files show scores, pass/fail status, and detailed reasoning for why each metric passed or failed.
 
@@ -2525,7 +2519,7 @@ The `deepeval_all_results.json` file aggregates all individual evaluations:
 }
 ```
 
-### 10.3 Reading Evaluation Reports
+### 11.3 Reading Evaluation Reports
 
 When the evaluation pipeline completes, it prints comprehensive reports to the console. Understanding these reports helps you quickly identify issues and track progress.
 
@@ -2641,7 +2635,7 @@ Each metric includes a detailed explanation of its score. Understanding these re
 3. **Identify patterns**: If multiple conversations fail the same metric with similar reasons, there's a systematic issue
 4. **Prioritize fixes**: Focus on failures with `0.000` scores first - these are complete failures
 
-### 10.4 Summary Reports
+### 11.4 Summary Reports
 
 After evaluating all conversations, the framework prints comprehensive summary reports showing overall performance, per-metric statistics, and categorization of results.
 
