@@ -1,0 +1,1475 @@
+# Self-Service Agent Blueprint: Quick Start Guide
+## Revised Outline
+
+================================================================================
+1. INTRODUCTION
+================================================================================
+
+1.1 Who Is This For?
+  - IT teams implementing AI-driven self-service solutions
+  - DevOps engineers deploying agent-based systems
+  - Solution architects evaluating AI automation platforms
+  - Organizations looking to streamline IT processes with generative AI
+
+1.2 The Business Case for AI-Driven IT Self-Service
+
+Many organizations are working to support IT processes through generative AI based
+self-service implementations. IT teams with Red Hat have already started on this
+journey and the team building this quickstart met with those teams to incorporate
+the lessons learned so far into the quickstart.
+
+The key value proposition for implementing IT processes with generative AI include:
+
+* Reduced employee time to complete common requests. The system helps employees
+  create their requests by helping them understand the options and required
+  information for the request and helps employees submit those requests once
+  they are ready.
+* Higher compliance to process standards. Requests will be more complete and
+  aligned with process standards. This will reduce the need to contact the
+  requesting employee for additional information and reduce time and effort to
+  review and complete requests.
+* Fewer rejected requests due missing/incorrect information. Rejected requests
+  are frustrating for employees and leads to lower employee satisfaction.
+  Avoiding request rejection and reducing back and forth on requests will
+  improve employee satisfaction.
+* Shorter time to close a ticket. The system helps tickets to close faster,
+  improving throughput and reducing ticket idle time.
+
+1.3 Example Use Cases
+
+IT processes that are suitable for automation with generative AI include:
+
+* Laptop refresh requests
+* Privacy Impact Assessment (PIA) assessment
+* RFP generation
+* Access request processing
+* Software license requests
+* Equipment provisioning
+
+1.4 What This Quickstart Provides
+
+This quickstart provides the framework, components and knowledge to accelerate
+your journey to deploying generative AI based self-service implementations. Many
+AI based IT process implementations should be able to share common components
+within an enterprise. The addition of an Agent configuration file, along with
+additional tools, knowledge bases and evaluations complete the implementation
+for a specific use case. Often no code changes to the common components will be
+required to add additional tools, knowledge bases or agents.
+
+1.5 What You'll Build
+
+The quick start provides implementations of the common components along with the
+process specific pieces needed to support the laptop refresh IT process as a
+concrete implementation.
+
+Time to complete: 30-60 minutes (depending on deployment mode)
+
+By the end of this quickstart, you will have:
+- A fully functional AI agent system deployed
+- A working laptop refresh agent with knowledge bases and tools
+- Completed evaluation runs demonstrating agent quality
+- (Optional) Slack integration for real-world testing
+- Understanding of how to customize for your own use cases
+
+1.6 Architecture Overview
+
+```mermaid
+graph TB
+    subgraph external["EXTERNAL INTEGRATIONS"]
+        style external fill:#fff5e6,stroke:#ff9800,stroke-width:2px
+        Slack[Slack]
+        ServiceNow[ServiceNow]
+        EmailSMS[Email/SMS]
+        LlamaStack[LlamaStack/LLM]
+    end
+
+    subgraph common["COMMON COMPONENTS (Reusable Platform)"]
+        style common fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+        RequestMgr[Request Manager]
+        AgentService[Agent Service]
+        IntegrationDisp[Integration Dispatcher]
+        AssetMgr[Asset Manager]
+        MCPFramework[MCP Server Framework]
+        EvalFramework[Evaluation Framework]
+        Observability[Observability/Tracing]
+    end
+
+    subgraph laptop["LAPTOP REFRESH SPECIFIC"]
+        style laptop fill:#e8f5e9,stroke:#4caf50,stroke-width:2px,stroke-dasharray: 5 5
+        SnowMCP[ServiceNow MCP Server]
+        EmpMCP[Employee Info MCP Server]
+        LaptopKB[Laptop Refresh Knowledge Base]
+        RoutingAgent[Routing Agent]
+        LaptopAgent[Laptop Refresh Specialist Agent]
+        LaptopEval[Laptop Refresh Evaluations]
+    end
+
+    %% External to Common Components
+    Slack <--> IntegrationDisp
+    EmailSMS <--> IntegrationDisp
+    ServiceNow <--> SnowMCP
+
+    %% Request Flow (Main Path)
+    IntegrationDisp --> RequestMgr
+    RequestMgr --> AgentService
+    AgentService --> IntegrationDisp
+
+    %% Agent Service Dependencies
+    AgentService <--> LlamaStack
+    AgentService --> RoutingAgent
+    AgentService --> LaptopAgent
+
+    %% LlamaStack Dependencies
+    LaptopAgent --> LaptopKB
+    LaptopAgent --> SnowMCP
+    LaptopAgent --> EmpMCP
+
+    %% Asset Manager Registration
+    AssetMgr -.->|registers| RoutingAgent
+    AssetMgr -.->|registers| LaptopAgent
+    AssetMgr -.->|registers| LaptopKB
+    AssetMgr -.->|registers| SnowMCP
+    AssetMgr -.->|registers| EmpMCP
+
+    %% MCP Framework Support
+    MCPFramework -.->|provides| SnowMCP
+    MCPFramework -.->|provides| EmpMCP
+
+    %% Evaluation Framework
+    EvalFramework --> LaptopEval
+    LaptopEval -.->|validates| LaptopAgent
+
+    %% Observability
+    Observability -.->|monitors| RequestMgr
+    Observability -.->|monitors| AgentService
+    Observability -.->|monitors| IntegrationDisp
+
+    classDef commonStyle fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    classDef laptopStyle fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,stroke-dasharray: 5 5
+    classDef externalStyle fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+
+    class RequestMgr,AgentService,IntegrationDisp,AssetMgr,MCPFramework,EvalFramework,Observability commonStyle
+    class SnowMCP,EmpMCP,LaptopKB,RoutingAgent,LaptopAgent,LaptopEval laptopStyle
+    class Slack,ServiceNow,EmailSMS,LlamaStack externalStyle
+```
+
+**Legend:**
+- **Blue (solid borders)**: Common platform components - reusable across all use cases
+- **Green (dashed borders)**: Laptop refresh specific components - customized for this use case
+- **Orange**: External integrations and services
+- **Solid arrows**: Request/response flow and direct interactions
+- **Dotted arrows**: Configuration, registration, and monitoring relationships
+
+================================================================================
+2. PREREQUISITES
+================================================================================
+
+2.1 Required Tools
+
+Before you begin, ensure you have:
+
+* Python 3.12+ - Required for all services and components
+* uv - Fast Python package installer (https://github.com/astral-sh/uv)
+* Podman or Docker - Container runtime for building images
+* Helm - Kubernetes package manager (for deployment)
+* kubectl - Kubernetes command line tool
+* git - Version control
+* make - Build automation (usually pre-installed on Linux/macOS)
+
+2.2 Environment Requirements
+
+All deployment modes require an OpenShift cluster:
+
+TESTING MODE (Mock Eventing):
+* OpenShift or Kubernetes cluster
+* No special operators required
+* Access to LlamaStack/LLM endpoint
+* Mock eventing service for testing event-driven flows
+
+PRODUCTION MODE (Knative Eventing):
+* OpenShift cluster with:
+  - OpenShift Serverless Operator
+  - Streams for Apache Kafka Operator
+* Access to LlamaStack/LLM endpoint
+* Full Knative eventing infrastructure
+
+2.3 Access Requirements
+
+* OpenShift cluster access (for Helm deployment)
+* Container registry access (Quay.io or similar)
+* LLM API endpoint and credentials
+* (Optional) Slack workspace admin access for Slack integration
+* (Optional) ServiceNow instance for full laptop refresh workflow
+
+2.4 Knowledge Prerequisites
+
+Helpful but not required:
+* Basic understanding of Kubernetes/OpenShift
+* Familiarity with REST APIs
+* Understanding of AI/LLM concepts
+* Experience with Python development
+
+2.5 Time Estimate
+
+* OpenShift deployment (testing mode): 45-60 minutes
+* Full production deployment with Slack: 60-90 minutes
+* Running evaluations: 15-30 minutes
+* Customization for your use case: Varies
+
+================================================================================
+3. ARCHITECTURE & DEPLOYMENT MODES
+================================================================================
+
+3.1 Two Deployment Modes
+
+This blueprint supports two deployment modes to match your development stage
+and infrastructure:
+
+MODE 1: TESTING (Mock Eventing)
+  When to use: Initial deployment, CI/CD pipelines, integration testing, staging environments
+  Communication: Mock eventing service mimics Knative behavior
+  Infrastructure: Kubernetes (no special operators)
+  Deployment: Kubernetes/OpenShift
+  Best for: Getting started, development, testing event-driven flows without Knative infrastructure
+
+MODE 2: PRODUCTION (Knative Eventing)
+  When to use: Production deployments, high-scale systems
+  Communication: Full Knative eventing with Kafka
+  Infrastructure: OpenShift + Serverless + Kafka operators
+  Deployment: OpenShift
+  Best for: Production workloads, scalability, reliability
+
+DECISION MATRIX:
+
+| Aspect           | Testing     | Production |
+|------------------|-------------|------------|
+| Infrastructure   | Basic       | Full       |
+| Scalability      | Medium      | High       |
+| Reliability      | Good        | Enterprise |
+| Setup Complexity | Low         | High       |
+| Cost             | Low         | Higher     |
+
+3.2 Core Architecture Flow
+
+Both modes use the same core components and logic:
+
+REQUEST FLOW:
+1. User initiates request (Slack, API, CLI, Web)
+2. Request Manager normalizes and validates request
+3. Agent Service processes with LlamaStack and tools
+4. Integration Dispatcher delivers response to user
+
+The communication mechanism (Mock Events vs Knative Events) is
+abstracted via the Strategy Pattern - same business logic, different transport.
+
+SESSION MANAGEMENT:
+* Request Manager: Tracks user interactions across integrations
+* Agent Service: Manages LlamaStack agent conversation history
+* Database: PostgreSQL stores all session state
+
+INTEGRATION SUPPORT:
+* Bidirectional: Slack (receives and sends)
+* Request-only: Web, CLI, API (synchronous response)
+* Response-only: Email, SMS, Webhook (delivery only)
+
+3.3 Communication Architecture
+
+[Reference to ARCHITECTURE_DIAGRAMS.md for detailed flow diagrams]
+
+KEY PATTERN:
+  External System → Request Manager → Agent Service → Integration Dispatcher → User
+
+UNIFIED CODEBASE:
+* Same code runs in both modes
+* Environment variable controls broker URL for mock vs production eventing
+* Strategy pattern abstracts communication mechanism
+* No code changes needed to switch modes
+
+================================================================================
+4. COMPONENT OVERVIEW
+================================================================================
+
+This section explains each component's purpose, importance, and role in the
+laptop refresh implementation.
+
+4.1 CORE PLATFORM COMPONENTS (Reusable Across Use Cases)
+
+────────────────────────────────────────────────────────────────────────────
+4.1.1 Request Manager
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+Central request orchestrator that normalizes incoming requests from all
+channels (Slack, API, CLI, Web) and routes them to the appropriate agent.
+
+WHY IT MATTERS:
+* Single entry point for all requests simplifies architecture
+* Normalizes diverse integration formats into standard request structure
+* Manages session continuity across multiple user interactions
+* Provides consistent API regardless of communication channel
+
+IN THE LAPTOP REFRESH EXAMPLE:
+* Receives laptop refresh requests from Slack users or CLI tools
+* Maintains conversation context across multiple turns
+* Routes requests to the routing agent initially
+* Tracks request history and user metadata
+
+REUSABILITY FOR OTHER USE CASES:
+No changes needed - Request Manager is fully generic. It works with any
+agent configuration and integration type.
+
+────────────────────────────────────────────────────────────────────────────
+4.1.2 Agent Service
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+AI processing engine that integrates with LlamaStack to execute agent
+interactions, call tools, and generate responses.
+
+WHY IT MATTERS:
+* Handles all LLM interactions and agent orchestration
+* Manages tool calling and integration with MCP servers
+* Streams responses for better user experience
+* Maintains LlamaStack session state for coherent conversations
+
+IN THE LAPTOP REFRESH EXAMPLE:
+* Executes the routing agent to determine user intent
+* Runs the laptop refresh specialist agent to handle the request
+* Calls ServiceNow MCP to check eligibility and create tickets
+* Calls Employee Info MCP to retrieve employee data
+* Uses laptop refresh knowledge base for policy questions
+
+REUSABILITY FOR OTHER USE CASES:
+No changes needed - Agent Service is generic. Register your agents and
+tools via Asset Manager, and Agent Service will orchestrate them.
+
+
+────────────────────────────────────────────────────────────────────────────
+4.1.3 Integration Dispatcher
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+Multi-channel delivery hub that sends agent responses to users via their
+preferred communication channels (Slack, Email, SMS, Webhooks).
+
+WHY IT MATTERS:
+* Decouples agent logic from delivery mechanisms
+* Supports multiple communication channels without agent changes
+* Manages delivery reliability and retry logic
+* Handles integration-specific formatting and protocols
+
+IN THE LAPTOP REFRESH EXAMPLE:
+* Delivers laptop options and status updates to Slack
+* Sends confirmation emails when tickets are created
+* Handles Slack incoming events (button clicks, messages)
+* Manages integration defaults and user preferences
+
+REUSABILITY FOR OTHER USE CASES:
+No changes needed for standard channels. Add new integration handlers only
+if you need custom delivery mechanisms.
+
+────────────────────────────────────────────────────────────────────────────
+4.1.4 Asset Manager
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+Configuration manager that registers agents, knowledge bases, and tool
+groups with LlamaStack.
+
+WHY IT MATTERS:
+* Simplifies agent configuration and deployment
+* Automates knowledge base creation from text files
+* Manages tool group registration for MCP servers
+* Provides version control for agent configurations
+
+IN THE LAPTOP REFRESH EXAMPLE:
+* Registers routing agent and laptop refresh specialist agent
+* Creates laptop refresh knowledge base from policy documents
+* Registers ServiceNow and Employee Info tool groups
+* Configures agent instructions and system prompts
+
+REUSABILITY FOR OTHER USE CASES:
+Highly reusable - add your agent configs, knowledge bases, and tools to
+config/ directories. Asset Manager handles registration automatically.
+
+────────────────────────────────────────────────────────────────────────────
+4.1.5 Mock Eventing Service
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+Lightweight service that mimics Knative broker behavior for testing
+event-driven flows without full Knative infrastructure.
+
+WHY IT MATTERS:
+* Enables testing event-driven patterns in CI/CD
+* No Knative operators or Kafka required
+* Identical behavior to production eventing mode
+* Faster iteration and debugging
+
+IN THE LAPTOP REFRESH EXAMPLE:
+* Used in testing mode for CI/CD pipelines
+* Validates event routing and delivery
+* Tests async request/response patterns
+
+REUSABILITY FOR OTHER USE CASES:
+Fully reusable - no customization needed. Enable with helm-install-test.
+
+────────────────────────────────────────────────────────────────────────────
+4.1.6 Shared Libraries
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+Common code libraries used across all services for consistency.
+
+COMPONENTS:
+* shared-models: Database models, Pydantic schemas, Alembic migrations
+* shared-clients: HTTP client implementations for inter-service communication
+
+WHY IT MATTERS:
+* Ensures consistent data models across all services
+* Centralizes database schema management
+* Provides unified client libraries for service communication
+* Reduces code duplication and maintenance burden
+
+REUSABILITY FOR OTHER USE CASES:
+Fully reusable - these are foundational libraries that don't need changes.
+
+────────────────────────────────────────────────────────────────────────────
+
+4.2 LAPTOP REFRESH SPECIFIC COMPONENTS
+
+────────────────────────────────────────────────────────────────────────────
+4.2.1 MCP Servers (Model Context Protocol)
+────────────────────────────────────────────────────────────────────────────
+
+WHAT IS MCP?
+Model Context Protocol is a standard for connecting AI agents to external
+systems and tools. MCP servers expose tools that agents can call during
+conversations.
+
+PURPOSE:
+Enable agents to interact with external systems (databases, APIs, services)
+by exposing tools through a standardized protocol.
+
+WHY IT MATTERS FOR AI-BASED IT PROCESSES:
+* Agents need access to real data (employee info, ticket systems)
+* Tool calls enable agents to take actions (create tickets, update records)
+* Standardized protocol makes tools reusable across agents
+* Separates business logic from agent orchestration
+
+IN THE LAPTOP REFRESH EXAMPLE:
+
+  ServiceNow MCP Server:
+  * get_current_laptop - Retrieves employee's current laptop info
+  * check_refresh_eligibility - Verifies if employee qualifies for refresh
+  * create_laptop_refresh_ticket - Submits refresh request to ServiceNow
+  * get_available_laptops - Fetches laptop options by region
+
+  Employee Info MCP Server:
+  * get_employee_info - Retrieves employee details (name, location, role)
+  * Used for personalizing responses and validating requests
+
+REUSABILITY FOR OTHER USE CASES:
+* ServiceNow MCP can be reused for other SNOW-based workflows
+* Employee Info MCP is reusable across any employee-facing process
+* For new use cases, create new MCP servers for your specific systems
+* Framework is fully generic - just implement your tools
+
+────────────────────────────────────────────────────────────────────────────
+4.2.2 Knowledge Bases
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+Vector databases containing domain-specific knowledge that agents use for
+Retrieval-Augmented Generation (RAG) to answer questions accurately.
+
+WHY IT MATTERS FOR AI-BASED IT PROCESSES:
+* Provides agents with accurate, up-to-date policy information
+* Reduces hallucination by grounding responses in factual documents
+* Enables easy updates without retraining models
+* Supports complex policies that exceed LLM context windows
+
+IN THE LAPTOP REFRESH EXAMPLE:
+* laptop-refresh knowledge base contains:
+  - refresh_policy.txt: Eligibility rules, warranty requirements
+  - laptop_offerings.txt: Available models by region, specifications
+* Agent retrieves relevant policy sections to answer user questions
+* Ensures compliance with organizational policies
+
+REUSABILITY FOR OTHER USE CASES:
+Highly reusable pattern:
+1. Create directory in asset-manager/config/knowledge_bases/
+2. Add .txt files with your domain knowledge
+3. Asset Manager creates vector database automatically
+4. Configure your agent to use the knowledge base
+
+Examples for other use cases:
+* PIA Assessment: privacy_laws.txt, assessment_templates.txt
+* RFP Generation: rfp_guidelines.txt, vendor_requirements.txt
+
+────────────────────────────────────────────────────────────────────────────
+4.2.3 Agents
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+AI agent configurations that define agent behavior, instructions, tools,
+and knowledge bases.
+
+WHY IT MATTERS FOR AI-BASED IT PROCESSES:
+* Defines agent personality and behavior
+* Specifies which tools and knowledge the agent can access
+* Enables specialized agents for different processes
+* Supports routing patterns for complex workflows
+
+IN THE LAPTOP REFRESH EXAMPLE:
+
+  Routing Agent (routing-agent):
+  * Greets users and identifies their intent
+  * Routes to appropriate specialist agent
+  * Handles general questions
+  * No tools or knowledge bases (pure routing)
+
+  Laptop Refresh Specialist Agent (laptop-refresh):
+  * Specialized in laptop refresh process
+  * Uses laptop-refresh knowledge base
+  * Calls ServiceNow and Employee Info tools
+  * Guides users through request creation
+  * System prompt includes process steps and compliance rules
+
+REUSABILITY FOR OTHER USE CASES:
+Agent configuration pattern is highly reusable:
+1. Create YAML file in asset-manager/config/agents/
+2. Define agent name, instructions, tools, knowledge bases
+3. Asset Manager registers with LlamaStack
+4. Update routing agent to route to new specialist
+
+Example for PIA Assessment:
+* Create pia-specialist agent
+* Use privacy knowledge base
+* Call compliance checking tools
+* Add routing rule for PIA requests
+
+────────────────────────────────────────────────────────────────────────────
+4.2.4 Evaluation Framework
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+DeepEval-based testing system that validates agent behavior against
+business requirements and quality metrics.
+
+WHY IT MATTERS FOR AI-BASED IT PROCESSES:
+* Ensures agents meet business requirements before deployment
+* Catches regressions when updating prompts or models
+* Provides metrics for continuous improvement
+* Validates compliance with policies and procedures
+* Builds confidence in AI system reliability
+
+IN THE LAPTOP REFRESH EXAMPLE:
+
+  Predefined Conversation Flows:
+  * Success flow: Complete laptop refresh request
+  * Edge cases: Ineligible employee, missing information
+  * Saved in evaluations/conversations_config/conversations/
+
+  Generated Conversations:
+  * Synthetic conversations with varied scenarios
+  * Tests agent handling of diverse user inputs
+
+  Evaluation Metrics:
+  * Information Gathering: Did agent collect employee ID?
+  * Policy Compliance: Did agent check eligibility correctly?
+  * Option Presentation: Were laptop options shown accurately?
+  * Process Completion: Was ticket created successfully?
+  * Flow Termination: Proper ending with ticket number
+  * User Experience: Helpfulness, clarity, professionalism
+
+  Pipeline:
+  1. Run conversations against deployed agent
+  2. Generate additional test scenarios
+  3. Evaluate with business metrics
+  4. Report results and identify issues
+
+REUSABILITY FOR OTHER USE CASES:
+Evaluation framework is reusable with customization:
+
+1. Define conversation templates for your use case
+2. Create custom metrics in get_deepeval_metrics.py:
+   * For PIA: Check if all privacy questions were asked
+   * For RFP: Validate RFP structure and completeness
+3. Run evaluation pipeline: python evaluate.py
+4. Review results and iterate
+
+The framework structure (conversation execution, generation, evaluation)
+remains the same - only metrics and templates change.
+
+────────────────────────────────────────────────────────────────────────────
+4.2.5 Communication Integrations
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+Connect agents to communication channels where users interact with the system.
+
+COMMUNICATION CHANNELS:
+* Slack: Real-time conversations in Slack workspace
+* Email: Asynchronous notifications and updates
+* API/CLI: Programmatic access and automation
+* Web: Browser-based interactions
+
+WHY IT MATTERS FOR AI-BASED IT PROCESSES:
+* Meet users where they already work (Slack, email)
+* Provide flexibility in how users interact
+* Enable automation and integration with other systems
+* Support different user preferences and workflows
+* Increase adoption by reducing friction
+
+IN THE LAPTOP REFRESH EXAMPLE:
+* Slack integration allows users to request laptops in Slack
+* Email sends confirmation when tickets are created
+* CLI enables testing and automation
+* API supports integration with employee portals
+
+REUSABILITY FOR OTHER USE CASES:
+* Communication integrations are fully reusable
+* No changes needed to support standard channels (Slack, Email, API)
+* Add custom integration handlers for specialized channels
+* Configure user preferences and defaults per channel
+
+────────────────────────────────────────────────────────────────────────────
+4.2.6 Observability
+────────────────────────────────────────────────────────────────────────────
+
+PURPOSE:
+Monitor system behavior, track performance, and troubleshoot issues in
+production environments.
+
+OBSERVABILITY COMPONENTS:
+* Distributed tracing (OpenTelemetry + Jaeger)
+* Request/response logging
+* Performance monitoring
+* Error tracking and debugging
+* Custom metrics and dashboards
+
+WHY IT MATTERS FOR AI-BASED IT PROCESSES:
+* Troubleshoot issues in production quickly
+* Monitor agent performance and response latency
+* Track request flows across distributed services
+* Identify bottlenecks and optimization opportunities
+* Measure business KPIs (completion rate, user satisfaction)
+* Debug complex multi-service interactions
+
+IN THE LAPTOP REFRESH EXAMPLE:
+* Trace complete laptop refresh flow from Slack to ServiceNow
+* Monitor tool call latency (Employee Info, ServiceNow APIs)
+* Track knowledge base retrieval performance
+* Alert on failed ticket creation
+* Measure end-to-end request completion time
+* Debug conversation routing issues
+
+REUSABILITY FOR OTHER USE CASES:
+* Observability infrastructure works for any use case without changes
+* Add custom metrics for your specific KPIs
+* Configure alerts for your business requirements
+* Track domain-specific metrics (PIA completion, RFP quality, etc.)
+
+================================================================================
+5. HANDS-ON QUICK START
+================================================================================
+
+This section walks you through deploying and testing the laptop refresh agent
+on OpenShift.
+
+5.1 Deploy to OpenShift
+
+────────────────────────────────────────────────────────────────────────────
+STEP 1: Choose Your Deployment Mode
+────────────────────────────────────────────────────────────────────────────
+
+For first deployment, we recommend TESTING MODE (Mock Eventing):
+* No Knative operators required
+* Tests event-driven patterns
+* Simpler than production infrastructure
+
+────────────────────────────────────────────────────────────────────────────
+STEP 2: Set Required Environment Variables
+────────────────────────────────────────────────────────────────────────────
+
+# Set your namespace
+export NAMESPACE=your-namespace
+
+# Set LLM configuration
+export LLM=llama-3-2-1b-instruct
+export LLM_API_TOKEN=your-api-token
+export LLM_URL=https://your-llm-endpoint
+
+# Set integration secrets (optional for initial testing)
+export SLACK_SIGNING_SECRET=your-slack-secret  # Optional
+export SNOW_API_KEY=your-servicenow-key       # Optional
+
+# Set container registry (if using custom builds)
+export REGISTRY=quay.io/your-org
+
+────────────────────────────────────────────────────────────────────────────
+STEP 3: Build Container Images (Optional)
+────────────────────────────────────────────────────────────────────────────
+
+If using pre-built images, skip this step.
+
+# Build all images
+make build-all-images
+
+# Push to registry
+make push-all-images
+
+Expected outcome: All images built and pushed to registry
+
+────────────────────────────────────────────────────────────────────────────
+STEP 4: Deploy with Helm
+────────────────────────────────────────────────────────────────────────────
+
+# Login to OpenShift
+oc login --server=https://your-cluster:6443
+
+# Create namespace if needed
+oc new-project $NAMESPACE
+
+# Deploy in testing mode (Mock Eventing)
+make helm-install-test NAMESPACE=$NAMESPACE
+
+Expected outcome:
+✓ Helm chart deployed successfully
+✓ All pods running
+✓ Routes created
+
+────────────────────────────────────────────────────────────────────────────
+STEP 5: Verify Deployment
+────────────────────────────────────────────────────────────────────────────
+
+# Check deployment status
+make helm-status NAMESPACE=$NAMESPACE
+
+# Check pods
+oc get pods -n $NAMESPACE
+
+# Check routes
+oc get routes -n $NAMESPACE
+
+Expected outcome:
+* All pods in Running state
+* Routes accessible
+* Asset manager completed successfully
+
+────────────────────────────────────────────────────────────────────────────
+STEP 6: Test the Deployment
+────────────────────────────────────────────────────────────────────────────
+
+# Get the request manager route
+export REQUEST_MANAGER_URL=$(oc get route request-manager -n $NAMESPACE -o jsonpath='{.spec.host}')
+
+# Send test request
+curl -X POST https://$REQUEST_MANAGER_URL/api/v1/requests \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Hello, I need help with my laptop",
+    "user_id": "test-user",
+    "integration_type": "cli"
+  }'
+
+Expected outcome: Agent greeting response
+
+────────────────────────────────────────────────────────────────────────────
+YOU SHOULD NOW BE ABLE TO:
+────────────────────────────────────────────────────────────────────────────
+✓ Deploy the system to OpenShift
+✓ Access agents via public routes
+✓ Monitor pods and services
+✓ Troubleshoot deployment issues
+
+────────────────────────────────────────────────────────────────────────────
+
+5.2 Run Your First Evaluation
+
+────────────────────────────────────────────────────────────────────────────
+STEP 1: Configure Evaluation Environment
+────────────────────────────────────────────────────────────────────────────
+
+cd evaluations/
+
+# Set LLM endpoint for evaluation (can use different model)
+export LLM_API_TOKEN=your-evaluation-llm-token
+export LLM_URL=https://your-evaluation-llm-endpoint
+export LLM_ID=your-model-id
+
+# Install evaluation dependencies
+pip install -e .
+
+────────────────────────────────────────────────────────────────────────────
+STEP 2: Run Predefined Conversation Flows
+────────────────────────────────────────────────────────────────────────────
+
+# Execute predefined conversations against deployed agent
+python run_conversations.py
+
+Expected outcome:
+✓ Conversations executed against deployed agent
+✓ Results saved to results/conversation_results/
+✓ success-flow.json, edge-case-ineligible.json, etc.
+
+Review results:
+cat results/conversation_results/success-flow.json
+
+You should see complete conversation with agent responses.
+
+────────────────────────────────────────────────────────────────────────────
+STEP 3: Generate Additional Test Conversations
+────────────────────────────────────────────────────────────────────────────
+
+# Generate 20 synthetic conversations
+python generator.py 20 --max-turns 20
+
+Expected outcome:
+✓ 20 generated conversations saved to results/conversation_results/
+✓ Diverse scenarios covering various edge cases
+
+────────────────────────────────────────────────────────────────────────────
+STEP 4: Run Comprehensive Evaluation
+────────────────────────────────────────────────────────────────────────────
+
+# Evaluate all conversations with business metrics
+python deep_eval.py
+
+Expected outcome:
+✓ Each conversation evaluated against metrics
+✓ Results saved to results/deep_eval_results/
+✓ deepeval_all_results.json with aggregate metrics
+
+────────────────────────────────────────────────────────────────────────────
+STEP 5: Review Evaluation Results
+────────────────────────────────────────────────────────────────────────────
+
+# View summary
+cat results/deep_eval_results/deepeval_all_results.json
+
+Key metrics to review:
+* Information Gathering: Did agent collect required data?
+* Policy Compliance: Did agent follow laptop refresh policy?
+* Option Presentation: Were options shown correctly?
+* Process Completion: Were tickets created successfully?
+* User Experience: Was agent helpful and clear?
+
+Success criteria:
+* Information Gathering: > 0.8
+* Policy Compliance: > 0.9
+* Process Completion: > 0.85
+* User Experience: > 0.8
+
+────────────────────────────────────────────────────────────────────────────
+STEP 6: Run Complete Pipeline
+────────────────────────────────────────────────────────────────────────────
+
+# Run entire pipeline (conversations + generation + evaluation)
+python evaluate.py --num-conversations 30
+
+Expected outcome:
+✓ Predefined flows executed
+✓ 30 conversations generated
+✓ All conversations evaluated
+✓ Comprehensive results report
+
+────────────────────────────────────────────────────────────────────────────
+YOU SHOULD NOW BE ABLE TO:
+────────────────────────────────────────────────────────────────────────────
+✓ Execute evaluation pipelines
+✓ Generate synthetic test conversations
+✓ Evaluate agent performance with business metrics
+✓ Identify areas for improvement
+✓ Validate agent behavior before production
+
+────────────────────────────────────────────────────────────────────────────
+
+5.3 Try Slack Integration (Optional)
+
+────────────────────────────────────────────────────────────────────────────
+STEP 1: Set Up Slack App
+────────────────────────────────────────────────────────────────────────────
+
+See SLACK_SETUP.md for detailed instructions.
+
+Summary:
+1. Create Slack app at api.slack.com/apps
+2. Configure OAuth scopes (chat:write, channels:history, etc.)
+3. Enable Event Subscriptions
+4. Set Request URL to your Integration Dispatcher route
+5. Install app to workspace
+6. Copy signing secret
+
+────────────────────────────────────────────────────────────────────────────
+STEP 2: Update Deployment with Slack Credentials
+────────────────────────────────────────────────────────────────────────────
+
+# Set Slack credentials
+export SLACK_SIGNING_SECRET=your-signing-secret
+export SLACK_BOT_TOKEN=your-bot-token
+
+# Upgrade Helm deployment
+make helm-upgrade NAMESPACE=$NAMESPACE
+
+────────────────────────────────────────────────────────────────────────────
+STEP 3: Test Slack Interaction
+────────────────────────────────────────────────────────────────────────────
+
+In Slack:
+1. Invite bot to a channel: /invite @your-bot
+2. Send message: "@your-bot I need a new laptop"
+3. Follow conversation flow
+4. Verify agent responds with laptop options
+5. Complete request and get ticket number
+
+Expected outcome:
+✓ Bot responds in Slack thread
+✓ Conversation maintains context
+✓ Agent asks for employee ID
+✓ Agent shows laptop options
+✓ Ticket created in ServiceNow
+
+────────────────────────────────────────────────────────────────────────────
+YOU SHOULD NOW BE ABLE TO:
+────────────────────────────────────────────────────────────────────────────
+✓ Interact with agents via Slack
+✓ Test real-world user experience
+✓ Demonstrate system to stakeholders
+✓ Gather user feedback
+
+────────────────────────────────────────────────────────────────────────────
+
+5.4 Explore the System
+
+────────────────────────────────────────────────────────────────────────────
+STEP 1: View Traces in OpenTelemetry
+────────────────────────────────────────────────────────────────────────────
+
+# Access Jaeger UI (if deployed)
+oc get route jaeger -n $NAMESPACE
+
+Open in browser to see:
+* Request traces across all services
+* Timing breakdowns
+* Error tracking
+
+────────────────────────────────────────────────────────────────────────────
+STEP 2: Inspect Database Sessions
+────────────────────────────────────────────────────────────────────────────
+
+# Port-forward to PostgreSQL
+oc port-forward svc/postgresql 5432:5432 -n $NAMESPACE
+
+# Connect with psql
+psql -h localhost -U postgres -d selfservice
+
+# View sessions
+SELECT * FROM request_sessions ORDER BY created_at DESC LIMIT 10;
+
+# View request logs
+SELECT * FROM request_logs ORDER BY created_at DESC LIMIT 10;
+
+────────────────────────────────────────────────────────────────────────────
+STEP 3: Review Agent Logs
+────────────────────────────────────────────────────────────────────────────
+
+# View agent service logs
+oc logs -f deployment/agent-service -n $NAMESPACE
+
+# View request manager logs
+oc logs -f deployment/request-manager -n $NAMESPACE
+
+# View integration dispatcher logs
+oc logs -f deployment/integration-dispatcher -n $NAMESPACE
+
+Look for:
+* Agent decisions and tool calls
+* Knowledge base retrievals
+* Request routing
+* Error messages
+
+────────────────────────────────────────────────────────────────────────────
+STEP 4: Test Different Integration Types
+────────────────────────────────────────────────────────────────────────────
+
+# Test CLI integration
+curl -X POST https://$REQUEST_MANAGER_URL/api/v1/requests ...
+
+# Test with session continuity
+# First request
+RESPONSE=$(curl -X POST ... | jq -r '.session_id')
+
+# Follow-up request with session_id
+curl -X POST ... -d "{\"session_id\": \"$RESPONSE\", ...}"
+
+────────────────────────────────────────────────────────────────────────────
+YOU SHOULD NOW BE ABLE TO:
+────────────────────────────────────────────────────────────────────────────
+✓ Navigate observability tools
+✓ Troubleshoot issues with traces and logs
+✓ Understand request flows
+✓ Monitor system health
+
+────────────────────────────────────────────────────────────────────────────
+
+5.5 Common Issues and Troubleshooting
+
+Issue: Pods stuck in Pending state
+Solution: Check resource quotas and limits in namespace
+
+Issue: Agent returns errors about missing tools
+Solution: Verify asset manager job completed successfully
+
+Issue: LlamaStack connection errors
+Solution: Check LLAMA_STACK_URL environment variable
+
+Issue: Evaluation fails with authentication errors
+Solution: Verify LLM_API_TOKEN is set correctly
+
+Issue: Slack events not received
+Solution: Check Integration Dispatcher route is accessible externally
+
+See TROUBLESHOOTING.md for more details.
+
+================================================================================
+6. GOING DEEPER: COMPONENT DOCUMENTATION
+================================================================================
+
+Now that you have the system running, dive deeper into each component.
+
+6.1 Core Platform
+
+REQUEST MANAGER
+* Full documentation: request-manager/README.md
+* Topics: Session management, request normalization, routing logic
+* API Reference: API_REFERENCE.md
+
+AGENT SERVICE
+* Full documentation: agent-service/README.md (TBD)
+* Topics: LlamaStack integration, tool calling, streaming responses
+* Architecture: ARCHITECTURE_DIAGRAMS.md
+
+INTEGRATION DISPATCHER
+* Full documentation: integration-dispatcher/README.md (TBD)
+* Topics: Multi-channel delivery, integration handlers, user overrides
+* Integration setup: INTEGRATION_GUIDE.md
+
+SHARED LIBRARIES
+* shared-models: Database models, schemas, migrations
+* shared-clients: HTTP client implementations
+* Documentation: shared-models/README.md, shared-clients/README.md
+
+6.2 Agent Configuration
+
+ASSET MANAGER
+* Full documentation: asset-manager/README.md
+* Topics: Agent registration, knowledge base creation, tool groups
+* Local testing: asset-manager/local_testing/README.md
+
+AGENT CONFIGURATIONS
+* Directory: asset-manager/config/agents/
+* Examples: routing-agent.yaml, laptop-refresh.yaml
+* Guide: Create your own agent YAML files
+
+PROMPT CONFIGURATION
+* Guide: docs/PROMPT_CONFIGURATION_GUIDE.md
+* It is a part of configuring the agent covered under AGENT CONFIGURATIONS
+* Topics: System prompts, few-shot examples, prompt engineering
+
+KNOWLEDGE BASES
+* Directory: asset-manager/config/knowledge_bases/
+* Structure: One directory per knowledge base
+* Format: .txt files automatically indexed
+
+
+6.3 External Integrations
+
+MCP SERVERS
+* ServiceNow: mcp-servers/snow/README.md
+* Employee Info: mcp-servers/employee-info/README.md
+* Creating new MCP: TOOL_INTEGRATION_GUIDE.md
+
+SLACK SETUP
+* Guide: SLACK_SETUP.md
+* Topics: App creation, OAuth, event subscriptions
+
+TOOL INTEGRATION
+* Guide: TOOL_INTEGRATION_GUIDE.md
+* Topics: MCP protocol, tool design, testing
+
+6.4 Quality & Operations
+
+EVALUATION FRAMEWORK
+* Full documentation: evaluations/README.md
+* Topics: Conversation flows, metrics, generation, pipeline
+
+OBSERVABILITY
+* Guide: tracing-config/README.md
+* Topics: OpenTelemetry, Jaeger, distributed tracing
+
+API REFERENCE
+* Documentation: API_REFERENCE.md
+* All endpoints: Request Manager, Agent Service, Integration Dispatcher
+
+ARCHITECTURE DIAGRAMS
+* Documentation: ARCHITECTURE_DIAGRAMS.md
+* Flow diagrams for all communication patterns
+
+================================================================================
+7. CUSTOMIZING FOR YOUR USE CASE
+================================================================================
+
+The laptop refresh example demonstrates all components. This section guides
+you in adapting the blueprint for your own IT process.
+
+7.1 Planning Your Use Case
+
+────────────────────────────────────────────────────────────────────────────
+STEP 1: Define Your IT Process
+────────────────────────────────────────────────────────────────────────────
+
+Questions to answer:
+* What IT process are you automating? (PIA, RFP, access requests, etc.)
+* What are the steps a user goes through?
+* What information does the agent need to collect?
+* What systems does the agent need to interact with?
+* What policies or rules govern the process?
+* How do you measure success?
+
+Example: Privacy Impact Assessment (PIA)
+
+Process steps:
+1. User requests PIA assessment
+2. Agent asks about project details (name, scope, data types)
+3. Agent asks privacy-specific questions
+4. Agent evaluates risk level based on responses
+5. Agent generates PIA document
+6. Agent submits to compliance team
+
+────────────────────────────────────────────────────────────────────────────
+STEP 2: Identify Required Integrations
+────────────────────────────────────────────────────────────────────────────
+
+For each external system, determine:
+* What data do you need to read?
+* What actions do you need to perform?
+* Does an API exist?
+* What authentication is required?
+
+Example: PIA Assessment
+* Compliance system API: Submit PIA documents
+* HR system: Get employee and project info
+* Document storage: Save generated PIAs
+* Email: Notify compliance team
+
+────────────────────────────────────────────────────────────────────────────
+STEP 3: Map Knowledge Requirements
+────────────────────────────────────────────────────────────────────────────
+
+What knowledge does the agent need?
+* Policy documents
+* Process guidelines
+* Templates
+* FAQs
+* Legal/compliance requirements
+
+Example: PIA Assessment
+* Privacy laws and regulations
+* PIA question templates
+* Risk assessment criteria
+* Data classification guidelines
+* Example PIAs for reference
+
+────────────────────────────────────────────────────────────────────────────
+STEP 4: Define Success Metrics
+────────────────────────────────────────────────────────────────────────────
+
+How will you evaluate the agent?
+* Process completion rate
+* Information accuracy
+* Policy compliance
+* User satisfaction
+* Time to completion
+
+Example: PIA Assessment
+* Did agent ask all required privacy questions?
+* Was risk level assessed correctly?
+* Did generated PIA meet compliance standards?
+* Was submission successful?
+
+────────────────────────────────────────────────────────────────────────────
+
+7.2 Implementation Checklist
+
+Use this checklist to implement your use case:
+
+[ ] CREATE MCP SERVERS
+    Directory: mcp-servers/your-use-case/
+
+    Steps:
+    1. Copy mcp-servers/employee-info/ as template
+    2. Define tools for your system APIs
+    3. Implement tool functions
+    4. Add authentication
+    5. Write unit tests
+    6. Update Containerfile
+    7. Add to Makefile build targets
+
+    Example tools for PIA:
+    * get_project_info
+    * assess_privacy_risk
+    * generate_pia_document
+    * submit_to_compliance
+
+[ ] BUILD KNOWLEDGE BASE
+    Directory: asset-manager/config/knowledge_bases/your-use-case/
+
+    Steps:
+    1. Create directory
+    2. Add .txt files with domain knowledge
+    3. Organize by topic
+    4. Keep documents focused (< 2000 words each)
+    5. Update regularly
+
+    Example for PIA:
+    * privacy_laws.txt
+    * pia_questionnaire.txt
+    * risk_criteria.txt
+    * data_classification.txt
+
+[ ] CONFIGURE AGENT
+    File: asset-manager/config/agents/your-use-case.yaml
+
+    Steps:
+    1. Copy laptop-refresh.yaml as template
+    2. Update agent_config.name
+    3. Write system instructions:
+       * Process steps
+       * Required information
+       * Policy compliance rules
+       * Tone and style
+    4. Specify tools (tool groups from MCP)
+    5. Specify knowledge base
+    6. Test and iterate
+
+    Example for PIA:
+    name: pia-specialist
+    instructions: |
+      You are a privacy specialist helping employees complete Privacy
+      Impact Assessments. Guide them through these steps:
+      1. Collect project information
+      2. Ask privacy-specific questions
+      3. Assess risk level
+      4. Generate PIA document
+      5. Submit to compliance team
+    tool_groups:
+      - compliance-tools
+      - hr-tools
+    knowledge_base: pia-knowledge
+
+[ ] UPDATE ROUTING AGENT
+    File: asset-manager/config/agents/routing-agent.yaml
+
+    Steps:
+    1. Add your use case to routing instructions
+    2. Define keywords/triggers for routing
+    3. Test routing logic
+
+    Example:
+    "If user mentions privacy, data protection, PIA, or assessment,
+    route to pia-specialist agent."
+
+[ ] CREATE EVALUATIONS
+    Directory: evaluations/conversations_config/conversations/your-use-case/
+
+    Steps:
+    1. Define success flow conversation
+    2. Define edge case conversations:
+       * Missing information
+       * Policy violations
+       * System errors
+    3. Create custom metrics in get_deepeval_metrics.py
+    4. Run evaluation pipeline
+    5. Iterate based on results
+
+    Example metrics for PIA:
+    * All required questions asked
+    * Risk assessment accurate
+    * PIA document complete
+    * Compliance submission successful
+
+[ ] CONFIGURE COMMUNICATION CHANNELS
+
+    Steps:
+    1. Decide which channels (Slack, email, API)
+    2. Set up integration credentials
+    3. Configure in Helm values
+    4. Test delivery
+
+    Example for PIA:
+    * Slack for user interaction
+    * Email to notify compliance team
+    * API for integration with project management
+
+[ ] UPDATE HELM VALUES
+    File: helm/values.yaml
+
+    Steps:
+    1. Add environment variables for new MCP servers
+    2. Add secrets for API credentials
+    3. Configure integration settings
+    4. Deploy and test
+
+[ ] BUILD AND DEPLOY
+
+    Steps:
+    1. Build MCP server images: make build-mcp-your-use-case-image
+    2. Push images: make push-mcp-your-use-case-image
+    3. Deploy: make helm-upgrade NAMESPACE=$NAMESPACE
+    4. Verify asset registration
+    5. Test end-to-end flow
+
+[ ] RUN EVALUATIONS
+
+    Steps:
+    1. Execute predefined conversations
+    2. Generate synthetic conversations
+    3. Evaluate with custom metrics
+    4. Iterate on agent configuration
+    5. Repeat until metrics meet targets
+
+────────────────────────────────────────────────────────────────────────────
+
+7.3 Development Best Practices
+
+AGENT CONFIGURATION:
+* Keep system instructions clear and concise
+* Use numbered steps for processes
+* Include examples in prompts
+* Test with diverse user inputs
+* Iterate based on evaluation results
+
+KNOWLEDGE BASE:
+* One topic per document
+* Keep documents under 2000 words
+* Use clear headings and structure
+* Update regularly
+* Version control in git
+
+MCP SERVERS:
+* One MCP per external system
+* Clear tool names and descriptions
+* Comprehensive error handling
+* Unit tests for all tools
+* Document authentication requirements
+
+EVALUATIONS:
+* Start with happy path
+* Add edge cases gradually
+* Create metrics aligned with business goals
+* Run evaluations in CI/CD
+* Track metrics over time
+
+DEPLOYMENT:
+* Start with testing mode
+* Validate with staging environment
+* Monitor metrics in production
+* Have rollback plan
+
+================================================================================
+8. ADDITIONAL RESOURCES
+================================================================================
+
+8.1 Documentation Index
+
+GETTING STARTED:
+* This Quick Start Guide
+* README.md - Project overview
+* GUIDELINES.md - Development guidelines
+
+ARCHITECTURE:
+* ARCHITECTURE_DIAGRAMS.md - Flow diagrams and patterns
+* INTEGRATION_GUIDE.md - Integration patterns and design
+
+API & INTEGRATION:
+* API_REFERENCE.md - All API endpoints
+* SLACK_SETUP.md - Slack integration guide
+* TOOL_INTEGRATION_GUIDE.md - MCP server development
+
+SECURITY:
+* AUTHENTICATION_GUIDE.md - Authentication setup
+
+COMPONENTS:
+* asset-manager/README.md - Asset management
+* evaluations/README.md - Evaluation framework
+* mcp-servers/*/README.md - MCP server documentation
+
+CONFIGURATION:
+* docs/PROMPT_CONFIGURATION_GUIDE.md - Prompt engineering
+
+DEVELOPMENT:
+* CLAUDE.md - AI assistant guidance
+* Makefile - All available commands
+
+8.2 Community and Support
+
+GITHUB REPOSITORY:
+* https://github.com/your-org/self-service-agent-blueprint
+* Issues, PRs, discussions
+
+CONTRIBUTING:
+* See CONTRIBUTING.md for guidelines
+* Code of conduct
+* Development workflow
+
+8.3 Glossary
+
+AI/ML TERMS:
+* LLM: Large Language Model
+* RAG: Retrieval-Augmented Generation
+* Vector Database: Database for semantic search
+* Tool Calling: LLM invoking external functions
+* Agent: AI system that can use tools and knowledge
+
+ARCHITECTURE TERMS:
+* MCP: Model Context Protocol for tool integration
+* CloudEvent: Standard event format
+* Knative: Kubernetes-based event-driven platform
+* Session: Conversation state across multiple turns
+* Integration: External communication channel (Slack, email)
+
+SYSTEM COMPONENTS:
+* Request Manager: Request orchestration service
+* Agent Service: AI processing engine
+* Integration Dispatcher: Multi-channel delivery service
+* Asset Manager: Configuration management
+* LlamaStack: AI agent orchestration platform
+
+8.4 Next Steps
+
+After completing this quick start:
+
+1. Customize for your use case (Section 7)
+2. Integrate with your systems (Section 6.3)
+3. Build evaluation pipeline (Section 6.4)
+4. Monitor and optimize (Section 5.4)
+5. Share learnings with community
+
+8.5 Feedback
+
+We'd love to hear about your experience:
+* What worked well?
+* What was confusing?
+* What's missing?
+* How can we improve?
+
+Submit feedback:
+* GitHub Issues: https://github.com/your-org/self-service-agent-blueprint/issues
+* Discussion forum: [link]
+* Email: [contact]
+
+================================================================================
+END OF QUICK START GUIDE
+================================================================================
