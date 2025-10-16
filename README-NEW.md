@@ -1,4 +1,4 @@
-# Self-Service Agent Quickstart: Quick Start Guide
+# Self-Service Agent Quickstart
 
 ## 1. INTRODUCTION
 
@@ -31,7 +31,6 @@ IT processes that are suitable for automation with generative AI include:
 * RFP generation
 * Access request processing
 * Software license requests
-* Equipment provisioning
 
 ### 1.4 What This Quickstart Provides
 
@@ -170,3 +169,953 @@ To adapt this quickstart for your specific IT process:
 ## What's Next
 
 Now that you understand the architecture and capabilities of the self-service agent quickstart, the next section will guide you through the prerequisites and setup steps needed to deploy the system on your OpenShift cluster.
+
+---
+
+## 2. PREREQUISITES
+
+### 2.1 Required Tools
+
+Before you begin, ensure you have:
+
+* Python 3.12+ - Required for all services and components
+* uv - Fast Python package installer (https://github.com/astral-sh/uv)
+* Podman - Container runtime for building images
+* Helm - Kubernetes package manager (for deployment)
+* oc - OpenShift command line tool
+* git - Version control
+* make - Build automation (usually pre-installed on Linux/macOS)
+
+### 2.2 Environment Requirements
+
+All deployment modes require an OpenShift cluster:
+
+**TESTING MODE (Mock Eventing):**
+* OpenShift or Kubernetes cluster
+* No special operators required
+* Access to LlamaStack/LLM endpoint
+* Mock eventing service for testing event-driven flows
+
+**PRODUCTION MODE (Knative Eventing):**
+* OpenShift cluster with:
+  - OpenShift Serverless Operator
+  - Streams for Apache Kafka Operator
+* Access to LlamaStack/LLM endpoint
+* Full Knative eventing infrastructure
+
+### 2.3 Access Requirements
+
+* OpenShift cluster access (for Helm deployment)
+* Container registry access (Quay.io or similar)
+* LLM API endpoint and credentials
+* (Optional) Slack workspace admin access for Slack integration
+* (Optional) ServiceNow instance for full laptop refresh workflow
+
+### 2.4 Knowledge Prerequisites
+
+Helpful but not required:
+* Basic understanding of Kubernetes/OpenShift
+* Familiarity with REST APIs
+* Understanding of AI/LLM concepts
+* Experience with Python development
+
+### 2.5 Time Estimate
+
+* OpenShift deployment (testing mode): 45-60 minutes
+* Full production deployment with Slack: 60-90 minutes
+* Running evaluations: 15-30 minutes
+* Customization for your use case: Varies
+
+---
+
+## 3. ARCHITECTURE & DEPLOYMENT MODES
+
+### 3.1 Deployment Modes
+
+The blueprint supports two deployment modes that share the same codebase but use different communication infrastructure. You can start with testing mode and transition to production without code changes—only configuration.
+
+**Testing Mode (Mock Eventing)**
+
+Testing mode uses a lightweight mock eventing service that mimics Knative broker behavior via simple HTTP routing. It's ideal for development, CI/CD pipelines, and staging environments. The mock service accepts CloudEvents and routes them to configured endpoints using the same protocols as production, but without requiring Knative operators or Kafka infrastructure. Deploy to any Kubernetes/OpenShift cluster with standard resources.
+
+**Production Mode (Knative Eventing)**
+
+Production mode leverages Knative Eventing with Apache Kafka for enterprise-grade event routing. It provides high availability, fault tolerance, horizontal scalability, and guaranteed delivery. Requires OpenShift Serverless Operator and Streams for Apache Kafka Operator, but delivers production-ready reliability with sophisticated retry logic and durable message queuing.
+
+**Mode Comparison**
+
+| Aspect | Testing Mode | Production Mode |
+|--------|-------------|-----------------|
+| **Infrastructure** | Basic Kubernetes/OpenShift | OpenShift + Serverless + Kafka operators |
+| **Scalability** | Moderate loads | High scalability via Kafka partitioning |
+| **Reliability** | Standard K8s features | Enterprise-grade with guaranteed delivery |
+| **Setup** | Low complexity | Higher complexity |
+| **Cost** | Lower footprint | Higher resources |
+
+Most teams start with testing mode, then transition to production via configuration changes only—no code modifications required.
+
+### 3.2 Request Flow
+
+Both modes use identical services, business logic, and data models. A strategy pattern abstracts the communication mechanism, making deployment mode differences transparent to application code.
+
+**Request Lifecycle**
+
+1. **User initiates request** via any channel (Slack, API, CLI, email) → Integration Dispatcher receives and forwards to Request Manager
+
+2. **Request Manager normalizes** diverse channel formats into standard internal structure, then performs validation and session management. For continuing conversations, retrieves session context from PostgreSQL (conversation history, user metadata, integration details)
+
+3. **Agent Service processes** the request. New requests route to routing agent, which identifies user intent and hands off to appropriate specialist (e.g., laptop refresh agent). Specialist accesses knowledge bases and calls MCP server tools to complete the workflow
+
+4. **Integration Dispatcher delivers** response back to user via their original channel, handling all channel-specific formatting
+
+**Session Management**
+
+The system maintains conversational context across multiple interactions regardless of channel—essential for multi-turn agent workflows. Request Manager stores session state in PostgreSQL with unique session ID, user ID, integration type, conversation history, current agent, and routing metadata.
+
+## 4. COMPONENT OVERVIEW
+
+The blueprint consists of reusable **core platform components** and **use-case-specific components** (demonstrated through the laptop refresh example). Core components work across any IT process without modification, while use-case components show how to customize for specific workflows.
+
+### 4.1 Core Platform Components (Reusable Across Use Cases)
+
+#### 4.1.1 Request Manager
+
+**Purpose:** Central orchestrator that normalizes multi-channel requests and manages session state.
+
+**Key Capabilities:**
+- **Normalization:** Transforms diverse inputs (Slack messages, HTTP calls, CLI commands) into standardized internal format containing user message, identifier, integration type, and session context
+- **Session Management:** Maintains conversational state across interactions by persisting sessions in PostgreSQL with conversation history, user metadata, and routing information
+
+---
+
+#### 4.1.2 Agent Service
+
+**Purpose:** Mediates communication with agents and routing between them.
+
+**Key Capabilities:**
+- **Agent Orchestration:** Routes requests to appropriate agents (routing agent → specialist agents), managing handoffs and conversation context
+  **** Uses agents configured by Asset manager
+- **Generic Design:** All domain logic comes from agent configurations registered via Asset Manager—no hardcoded use-case behavior
+
+---
+
+#### 4.1.3 Integration Dispatcher
+
+**Purpose:** Multi-channel delivery hub that sends/receives messages through various communication channels.
+
+**Key Capabilities:**
+- **Channel Handlers:** Registry of handlers for Slack, Email, SMS, webhooks—each handles channel-specific protocols and formatting
+- **Bidirectional Communication:** Implements webhook endpoints (e.g., Slack events), verifies signatures, extracts messages, forwards to Request Manager
+- **Extensible Architecture:** Add custom channels (Teams, mobile apps) by implementing new handlers without core logic changes
+
+---
+
+#### 4.1.4 Asset Manager
+
+**Purpose:** Configuration-as-code system that automates registration of agents, knowledge bases, and tool groups with LlamaStack.
+
+**Key Capabilities:**
+- **Agent Registration:** Reads YAML files from `asset-manager/config/agents/`, registers agents with their instructions, tools, and knowledge bases
+- **Knowledge Base Creation:** Processes text documents, creates embeddings, builds vector databases, registers for RAG queries
+
+**Example:** Kubernetes Job runs at initialization → Reads routing agent + laptop refresh specialist configs → Processes laptop knowledge base documents → Registers ServiceNow and Employee Info tool groups → Agent environment ready in minutes.
+
+**For Your Use Case:** Create agent YAML, add knowledge documents to directory, configure tool groups, deploy—Asset Manager handles LlamaStack registration automatically.
+
+---
+
+#### 4.1.5 Mock Eventing Service
+
+**Purpose:** Lightweight service that mimics Knative broker behavior for testing event-driven flows without complex infrastructure.
+
+**Key Capabilities:**
+- **Event Routing:** Accepts CloudEvents via HTTP, applies routing rules, forwards to destination services—identical protocols to production
+- **In-Memory Configuration:** Routes event types (`agent.request` → Agent Service, `integration.delivery` → Integration Dispatcher)
+- **Fast Iteration:** Instant startup, minimal resources, easy debugging—ideal for CI/CD pipelines and local development
+
+---
+
+#### 4.1.6 Shared Libraries
+
+**Purpose:** Foundational libraries ensuring consistency across all services through centralized data models and client implementations.
+
+**shared-models:**
+- **Database Schema:** SQLAlchemy models for database tables—single source of truth across all services
+- **Pydantic Schemas:** Request/response validation with type safety and automatic serialization
+- **Alembic Migrations:** Schema evolution management without manual SQL scripts
+
+**shared-clients:**
+- **HTTP Clients:** Standardized implementations for inter-service communication (AgentServiceClient, IntegrationDispatcherClient)
+
+---
+
+#### 4.1.7 Communication Integrations
+
+**Purpose:** Connect agents to communication channels where users interact with the system.
+
+**Communication Channels:**
+- **Slack**: Real-time conversations in Slack workspace
+- **Email**: Asynchronous notifications and updates
+- **API/CLI**: Programmatic access and automation
+- **Web**: Browser-based interactions
+
+**Key Capabilities:**
+- Meet users where they work—no additional tools required
+- Support multiple channels simultaneously (Slack conversation, email confirmations)
+- Fully reusable across all use cases
+- Extensible architecture for custom channels (Teams, mobile apps)
+
+**Example:** Laptop refresh via Slack → Email confirmation when ticket created → API integration with employee portals
+
+---
+
+#### 4.1.8 Observability
+
+**Purpose:** Monitor system behavior, track performance, and troubleshoot production issues.
+
+**Key Capabilities:**
+- **Distributed Tracing**: OpenTelemetry + Jaeger for request lifecycle visibility across all services
+- **Performance Monitoring**: Track agent response latency, tool call timing, knowledge base retrieval performance
+- **Error Tracking**: Debug failed integrations, conversation routing issues, ticket creation errors
+- **Business KPIs**: Measure completion rates, user satisfaction, end-to-end request timing
+
+**Integration:** Works with OpenShift observability stack—unified monitoring across platform components and existing infrastructure
+
+**Reusability:** Infrastructure works for any use case without changes—add custom metrics for specific KPIs (PIA completion, RFP quality, etc.)
+
+---
+
+#### 4.1.9 Evaluation Framework
+
+**Purpose:** DeepEval-based testing system that validates agent behavior against business requirements and quality metrics.
+
+**Key Capabilities:**
+- **Conversation Execution**: Run predefined and generated conversation flows against deployed agents
+- **Synthetic Generation**: Create varied test scenarios to exercise edge cases and diverse user inputs
+- **Custom Metrics**: Define business-specific evaluation criteria using ConversationalGEval
+- **Standard Metrics**: Built-in DeepEval metrics (Turn Relevancy, Role Adherence, Conversation Completeness)
+- **Pipeline Automation**: Complete evaluation workflow from execution through reporting
+
+**Why It Matters:**
+- Validates business requirements before deployment
+- Catches regressions when updating prompts or models
+- Provides metrics for continuous improvement
+- Validates compliance with policies and procedures
+- Addresses non-deterministic nature of LLM responses
+
+**Architecture:**
+- **Conversation Flows**: JSON files defining turn-by-turn interactions
+- **Metrics Configuration**: Python-based metric definitions in `get_deepeval_metrics.py`
+- **Evaluation Engine**: DeepEval library for metric assessment
+- **Results Storage**: JSON output with scores, reasons, and pass/fail status
+
+**Reusability:** Framework structure (execution, generation, evaluation) is fully reusable—customize by defining use-case-specific conversation flows and metrics.
+
+---
+
+### 4.2 Laptop Refresh Specific Components
+
+These components demonstrate how to customize the quickstart for a specific IT process. Apply the same patterns for your own use cases (PIA, RFP, etc.).
+
+#### 4.2.1 MCP Servers
+
+MCP servers allow agents to interact with external systems through standardized tools.
+
+**Laptop Refresh MCP Server:**
+
+**ServiceNow MCP (2 tools):**
+- `get_employee_laptop_info`: Retrieves employee's laptop information including model, purchase date, age, warranty status, and employee details (name, location). Supports lookup by employee ID or email address.
+- `open_laptop_refresh_ticket`: Creates ServiceNow laptop refresh ticket. Requires employee ID, employee name, business justification, and ServiceNow laptop code (e.g., `apple_mac_book_air_m_3`). Returns ticket number and details.
+
+**Implementation Details:**
+- Supports both mock data (for testing/development) and real ServiceNow API integration
+- Uses `AUTHORITATIVE_USER_ID` header for authenticated requests
+- Mock data includes pre-defined employees with laptop information for evaluation testing
+
+**For Your Use Case:**
+- **PIA Assessment:** Create Compliance MCP with tools like `submit_pia_assessment`, `check_privacy_requirements`, `generate_pia_report`
+- **RFP Generation:** Create Procurement MCP with tools like `create_rfp_request`, `get_vendor_requirements`, `submit_procurement_request`
+- **Pattern:** Create MCP server per backend system, implement tools using FastMCP framework, register with Asset Manager
+
+---
+
+#### 4.2.2 Knowledge Bases
+
+**Purpose:** Retrieval-Augmented Generation (RAG) system that grounds agent responses in authoritative organizational documents, reducing hallucination.
+
+**Why Knowledge Bases Matter:**
+- **Accuracy:** Agents retrieve information from policy documents rather than guessing, preventing incorrect policy explanations
+- **Maintainability:** Update policies by editing text files and redeploying—no LLM retraining needed
+- **Scalability:** Handles policies exceeding LLM context windows by retrieving only relevant sections via semantic search
+
+**Technical Implementation:** Documents chunked → converted to vector embeddings → stored in vector database → semantic search retrieves relevant chunks → provided to LLM as context
+
+**Laptop Refresh Knowledge Base:**
+- `refresh_policy.txt`: Eligibility criteria, approval process, special cases, policy rationale
+- `laptop_offerings.txt`: Available models by region, specifications, pricing, target user groups
+
+**Conversational Policy Explanation:** User asks "Why am I not eligible?" → Agent retrieves and explains specific unmet criteria
+
+**For Your Use Case:**
+- **PIA Assessment:** `privacy_laws.txt`, `pia_questionnaire.txt`, `risk_assessment_criteria.txt`, `data_classification.txt`
+- **RFP Generation:** `rfp_guidelines.txt`, `vendor_requirements.txt`, `procurement_policies.txt`, `contract_terms.txt`
+
+**Pattern:** Create directory under `asset-manager/config/knowledge_bases/`, add .txt files, Asset Manager handles chunking, embeddings, vector database creation, and LlamaStack registration.
+
+---
+
+#### 4.2.3 Agents
+
+**Purpose:** YAML configurations defining agent behavior, system instructions, accessible tools, and knowledge bases—registered with LlamaStack by Asset Manager.
+
+**Why Specialized Agents Matter:**
+- **Domain Focus:** Each agent configured for specific IT process (laptop refresh, PIA, RFP) with tailored instructions, tools, and knowledge bases
+- **Maintainability:** Focused instructions for one process—not trying to cover every scenario in a single monolithic prompt
+- **Configuration-Driven:** Update behavior by editing version-controlled YAML files—no code compilation or redeployment needed
+
+**Laptop Refresh Agent Architecture (Routing Pattern):**
+
+**Routing Agent:**
+- **Role:** Front door—greets users, identifies intent, routes to appropriate specialist
+- **Tools/Knowledge:** None—purely conversation and routing logic
+- **Instructions:** Recognizes request types ("I need a new laptop" → laptop refresh specialist, "privacy assessment" → PIA specialist)
+- **Extensibility:** Add specialists, update routing instructions—becomes conversational switchboard
+
+**Laptop Refresh Specialist Agent:**
+- **Role:** Domain expert guiding laptop refresh process
+- **Instructions:** Process flow (check eligibility, present options, create ticket), compliance requirements, interaction style
+- **Tools:** ServiceNow tools (eligibility, options, ticket creation), Employee Info tools
+- **Knowledge Base:** `laptop-refresh` knowledge base for policy questions
+- **Capabilities:** Queries knowledge base for policies, calls tools to check eligibility/retrieve options/create tickets
+
+**For Your Use Case:**
+- **PIA Assessment:** Create `pia-specialist.yaml` with PIA process instructions, `pia-knowledge` base, Compliance MCP tools (`check_data_sensitivity`, `generate_pia_document`, `submit_for_review`)
+- **Routing Updates:** Add "If user mentions privacy impact assessment, PIA, data protection, or GDPR compliance, route to pia-specialist"
+
+**Pattern:** Version-controlled in Git, reviewed in PRs, tested in dev environments—treats agent behavior as code with proper engineering discipline.
+
+---
+
+#### 4.2.4 Evaluations
+
+**Purpose:** Laptop refresh-specific conversation flows and metrics that validate the agent's ability to handle laptop refresh requests correctly.
+
+**Predefined Conversation Flows:**
+- **Success flow**: Complete laptop refresh request from greeting through ticket creation
+- **Edge cases**: Ineligible employee, missing information, policy questions
+- **Location**: `evaluations/conversations_config/conversations/`
+
+**Custom Evaluation Metrics** (in `get_deepeval_metrics.py`):
+- **Information Gathering**: Collects laptop info and employee ID
+- **Policy Compliance**: Correctly applies 3-year refresh policy with accurate eligibility determinations
+- **Option Presentation**: Presents appropriate laptop options based on user location
+- **Process Completion**: Completes flow (eligibility → options → selection → ticket creation)
+- **User Experience**: Maintains helpfulness, professionalism, clarity
+- **Flow Termination**: Ends with ticket number or DONEDONEDONE
+- **Ticket Number Validation**: ServiceNow format (REQ prefix)
+- **Correct Eligibility Validation**: Accurate 3-year policy timeframe
+- **No Errors Reported**: No system problems
+- **Correct Laptop Options for Location**: All location-specific models presented
+- **Confirmation Before Ticket Creation**: Agent asks user confirmation (no-employee-id flow)
+- **Employee ID Requested**: Agent requests employee ID (standard flow)
+
+**For Your Use Case:**
+1. Create conversation flows in `evaluations/conversations_config/conversations/your-use-case/`
+   - Update chatbot role in conversation JSON files (e.g., "laptop refresh specialist" → "PIA specialist")
+   - Define user inputs and expected agent behaviors for your process
+2. Update `generator.py` for synthetic conversation generation:
+   - Modify `_create_conversation_golden()` function to define your use case scenario:
+     - `scenario`: Description of what the user wants to accomplish (e.g., "Employee wants to complete a PIA assessment...")
+     - `expected_outcome`: What successful completion looks like (e.g., "PIA document submitted to compliance team")
+     - `user_description`: User persona details relevant to your process
+   - Update `authoritative_user_ids` file with test user identifiers for your process
+3. Define custom metrics in `get_deepeval_metrics.py`:
+   - **PIA**: Verify all privacy questions asked, risk assessment accuracy, document completeness
+   - **RFP**: Validate RFP structure, vendor requirements coverage, procurement compliance
+4. Run: `python evaluate.py`
+
+---
+
+## 5. HANDS-ON QUICK START
+
+This section walks you through deploying and testing the laptop refresh agent on OpenShift.
+
+### 5.1 Deploy to OpenShift
+
+#### Step 1: Choose Your Deployment Mode
+
+For first deployment, we recommend **Testing Mode (Mock Eventing)**:
+- No Knative operators required
+- Tests event-driven patterns
+- Simpler than production infrastructure
+
+#### Step 2: Set Required Environment Variables
+
+```bash
+# Set your namespace
+export NAMESPACE=your-namespace
+
+# Set LLM configuration
+export LLM=llama-3-2-1b-instruct
+export LLM_API_TOKEN=your-api-token
+export LLM_URL=https://your-llm-endpoint
+
+# Set integration secrets (optional for initial testing)
+export SLACK_SIGNING_SECRET=your-slack-secret  # Optional
+export SNOW_API_KEY=your-servicenow-key       # Optional
+
+# Set container registry (if using custom builds)
+export REGISTRY=quay.io/your-org
+```
+
+#### Step 3: Build Container Images (Optional)
+
+If using pre-built images, skip this step.
+
+```bash
+# Build all images
+make build-all-images
+
+# Push to registry
+make push-all-images
+```
+
+**Expected outcome:** All images built and pushed to registry
+
+#### Step 4: Deploy with Helm
+
+```bash
+# Login to OpenShift
+oc login --server=https://your-cluster:6443
+
+# Create namespace if needed
+oc new-project $NAMESPACE
+
+# Deploy in testing mode (Mock Eventing)
+make helm-install-test NAMESPACE=$NAMESPACE
+```
+
+**Expected outcome:**
+- ✓ Helm chart deployed successfully
+- ✓ All pods running
+- ✓ Routes created
+
+#### Step 5: Verify Deployment
+
+```bash
+# Check deployment status
+make helm-status NAMESPACE=$NAMESPACE
+
+# Check pods
+oc get pods -n $NAMESPACE
+
+# Check routes
+oc get routes -n $NAMESPACE
+```
+
+**Expected outcome:**
+- All pods in Running state
+- Routes accessible
+- Asset manager completed successfully
+
+#### Step 6: Test the Deployment
+
+```bash
+# Get the request manager route
+export REQUEST_MANAGER_URL=$(oc get route request-manager -n $NAMESPACE -o jsonpath='{.spec.host}')
+
+# Send test request
+curl -X POST https://$REQUEST_MANAGER_URL/api/v1/requests \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Hello, I need help with my laptop",
+    "user_id": "test-user",
+    "integration_type": "cli"
+  }'
+```
+
+**Expected outcome:** Agent greeting response
+
+**You should now be able to:**
+- ✓ Deploy the system to OpenShift
+- ✓ Access agents via public routes
+- ✓ Monitor pods and services
+- ✓ Troubleshoot deployment issues
+
+---
+
+### 5.2 Interact with the CLI
+
+Now that the system is deployed, let's interact with the agent through the CLI to test a complete laptop refresh workflow.
+
+#### Step 1: Start Interactive Chat Session
+
+Use the CLI chat script to start an interactive conversation with the agent:
+
+```bash
+# Get the request manager pod
+export REQUEST_MANAGER_POD=$(oc get pod -n $NAMESPACE -l app=request-manager -o jsonpath='{.items[0].metadata.name}')
+
+# Start interactive chat session
+oc exec -it $REQUEST_MANAGER_POD -n $NAMESPACE -- \
+  python test/chat-responses-request-mgr.py \
+  --user-id alice.johnson@company.com
+```
+
+**Expected outcome:**
+- Chat client starts in interactive mode
+- Agent sends initial greeting
+- You see a prompt where you can type messages
+
+#### Step 2: Complete Laptop Refresh Workflow
+
+Follow this conversation flow to test the complete laptop refresh process:
+
+**You:** `I need help with my laptop refresh`
+
+**Expected:** Agent greets you and retrieves your current laptop information
+
+**You:** `I would like to see available laptop options`
+
+**Expected:**
+- Agent checks your eligibility based on 3-year policy
+- Agent presents available laptop options for your region (NA, EMEA, APAC, or LATAM)
+- You see 4 laptop options with specifications and pricing
+
+**You:** `I would like option 1, the Apple MacBook Air M3`
+
+**Expected:** Agent confirms your selection and asks for approval to create ServiceNow ticket
+
+**You:** `Yes, please create the ticket`
+
+**Expected:**
+- ServiceNow ticket created
+- Ticket number provided (format: REQ followed by digits)
+- Confirmation message with next steps
+
+**You:** `DONEDONEDONE`
+
+**Expected:** Chat session ends
+
+#### Step 3: Test Different User Scenarios
+
+Test with different employee IDs to see varied scenarios:
+
+```bash
+# Test with different user (EMEA region)
+oc exec -it $REQUEST_MANAGER_POD -n $NAMESPACE -- \
+  python test/chat-responses-request-mgr.py \
+  --user-id john.doe@company.com
+
+# Test with user who may not be eligible
+oc exec -it $REQUEST_MANAGER_POD -n $NAMESPACE -- \
+  python test/chat-responses-request-mgr.py \
+  --user-id maria.garcia@company.com
+```
+
+**Expected outcome:**
+- Different laptop options based on region
+- Different eligibility results based on laptop age
+- Consistent agent behavior across scenarios
+
+**You should now be able to:**
+- ✓ Interact with agents via CLI using interactive chat
+- ✓ Complete full laptop refresh workflow
+- ✓ Test conversation flows with different users
+- ✓ Verify agent behavior and responses
+- ✓ Test eligibility checking and region-specific options
+
+---
+
+### 5.3 Use Slack Integration (Optional)
+
+Slack integration enables real-world testing with actual users in your workspace.
+
+#### Step 1: Set Up Slack App
+
+See `SLACK_SETUP.md` for detailed instructions.
+
+**Summary:**
+1. Create Slack app at api.slack.com/apps
+2. Configure OAuth scopes (chat:write, channels:history, etc.)
+3. Enable Event Subscriptions
+4. Set Request URL to your Integration Dispatcher route
+5. Install app to workspace
+6. Copy signing secret and bot token
+
+#### Step 2: Update Deployment with Slack Credentials
+
+```bash
+# Set Slack credentials
+export SLACK_SIGNING_SECRET=your-signing-secret
+export SLACK_BOT_TOKEN=your-bot-token
+
+# Upgrade Helm deployment
+make helm-upgrade NAMESPACE=$NAMESPACE
+```
+
+#### Step 3: Test Slack Interaction
+
+In your Slack workspace:
+
+1. Invite bot to a channel: `/invite @your-bot`
+2. Send message: `@your-bot I need a new laptop`
+3. Agent responds with greeting and laptop information
+4. Agent presents available laptop options
+5. Select a laptop: `I'd like option 1`
+6. Agent creates ServiceNow ticket and provides ticket number
+
+**Expected outcome:**
+- ✓ Bot responds in Slack thread
+- ✓ Conversation maintains context across multiple messages
+- ✓ Agent retrieves employee laptop info automatically (using Slack email)
+- ✓ Agent shows laptop options for employee's region
+- ✓ Ticket created with confirmation number
+
+**You should now be able to:**
+- ✓ Interact with agents via Slack
+- ✓ Test real-world user experience
+- ✓ Demonstrate system to stakeholders
+- ✓ Gather user feedback from actual employees
+
+---
+
+### 5.4 Integration with Real ServiceNow (Optional)
+
+By default, the system uses mock ServiceNow data. To integrate with your actual ServiceNow instance:
+
+#### Step 1: Configure ServiceNow Credentials
+
+```bash
+# Set ServiceNow configuration
+export SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
+export SERVICENOW_USERNAME=your-servicenow-username
+export SERVICENOW_PASSWORD=your-servicenow-password
+export USE_REAL_SERVICENOW=true
+
+# Upgrade Helm deployment
+make helm-upgrade NAMESPACE=$NAMESPACE
+```
+
+#### Step 2: Verify ServiceNow Connection
+
+Check the ServiceNow MCP server logs to confirm connection:
+
+```bash
+# View MCP server logs
+oc logs deployment/mcp-snow -n $NAMESPACE
+
+# Look for successful ServiceNow API calls
+# Example: "ServiceNow API request completed - employee ID: alice.johnson@company.com"
+```
+
+#### Step 3: Test with Real ServiceNow
+
+Use the CLI chat client to initiate a laptop refresh request with your real ServiceNow account:
+
+```bash
+# Get the request manager pod
+export REQUEST_MANAGER_POD=$(oc get pod -n $NAMESPACE -l app=request-manager -o jsonpath='{.items[0].metadata.name}')
+
+# Start chat session with your email
+oc exec -it $REQUEST_MANAGER_POD -n $NAMESPACE -- \
+  python test/chat-responses-request-mgr.py \
+  --user-id your-email@company.com
+```
+
+Then complete the laptop refresh workflow:
+
+**You:** `I need a laptop refresh`
+
+**You:** `I would like to see available laptop options`
+
+**You:** `I would like option [number]`
+
+**You:** `Yes, please create the ticket`
+
+**Expected outcome:**
+- Agent retrieves your actual laptop data from ServiceNow
+- Agent creates real ServiceNow ticket when you confirm
+- Ticket appears in your ServiceNow instance
+- You receive ServiceNow notifications via email
+
+#### Step 4: Verify in ServiceNow
+
+Log into your ServiceNow instance and verify:
+- Ticket was created in the correct category
+- Ticket contains accurate information (employee, laptop choice, justification)
+- Ticket is assigned to appropriate group
+- Ticket follows your ServiceNow workflows
+
+**You should now be able to:**
+- ✓ Connect to production ServiceNow instance
+- ✓ Create real tickets from agent conversations
+- ✓ Test end-to-end integration with backend systems
+- ✓ Validate data accuracy in ServiceNow
+
+---
+
+### 5.5 Run Evaluations
+
+The evaluation framework validates agent behavior against business requirements and quality metrics.
+
+#### Step 1: Configure Evaluation Environment
+
+```bash
+cd evaluations/
+
+# Set LLM endpoint for evaluation (can use different model than agent)
+export LLM_API_TOKEN=your-evaluation-llm-token
+export LLM_URL=https://your-evaluation-llm-endpoint
+export LLM_ID=your-model-id
+
+# Install evaluation dependencies
+pip install -e .
+```
+
+#### Step 2: Run Predefined Conversation Flows
+
+Execute the predefined conversation flows against your deployed agent:
+
+```bash
+# Run predefined conversations
+python run_conversations.py
+```
+
+**Expected outcome:**
+- ✓ Conversations executed against deployed agent
+- ✓ Results saved to `results/conversation_results/`
+- ✓ Files like `success-flow.json`, `edge-case-ineligible.json`
+
+Review a conversation result:
+```bash
+cat results/conversation_results/success-flow.json
+```
+
+You should see the complete conversation with agent responses at each turn.
+
+#### Step 3: Generate Synthetic Test Conversations
+
+Create additional test scenarios using the conversation generator:
+
+```bash
+# Generate 20 synthetic conversations
+python generator.py 20 --max-turns 20
+```
+
+**Expected outcome:**
+- ✓ 20 generated conversations saved to `results/conversation_results/`
+- ✓ Diverse scenarios with varied user inputs
+- ✓ Different edge cases automatically explored
+
+#### Step 4: Evaluate All Conversations
+
+Run the evaluation metrics against all conversation results:
+
+```bash
+# Evaluate with business metrics
+python deep_eval.py
+```
+
+**Expected outcome:**
+- ✓ Each conversation evaluated against 15 metrics
+- ✓ Results saved to `results/deep_eval_results/`
+- ✓ Aggregate metrics in `deepeval_all_results.json`
+
+#### Step 5: Review Evaluation Results
+
+```bash
+# View evaluation summary
+cat results/deep_eval_results/deepeval_all_results.json
+```
+
+**Key metrics to review:**
+- **Information Gathering**: Did agent collect required data? (Target: > 0.8)
+- **Policy Compliance**: Did agent follow 3-year refresh policy correctly? (Target: > 0.9)
+- **Option Presentation**: Were laptop options shown correctly? (Target: > 0.8)
+- **Process Completion**: Were tickets created successfully? (Target: > 0.85)
+- **User Experience**: Was agent helpful and clear? (Target: > 0.8)
+- **Correct Laptop Options for Location**: All region-specific models presented? (Target: 1.0)
+- **Ticket Number Validation**: ServiceNow format (REQ prefix)? (Target: 1.0)
+
+#### Step 6: Run Complete Evaluation Pipeline
+
+Run the full pipeline in one command:
+
+```bash
+# Complete pipeline: predefined + generated + evaluation
+python evaluate.py --num-conversations 30
+```
+
+**Expected outcome:**
+- ✓ Predefined flows executed
+- ✓ 30 synthetic conversations generated
+- ✓ All conversations evaluated
+- ✓ Comprehensive results report with aggregate metrics
+- ✓ Identification of failing conversations for debugging
+
+**You should now be able to:**
+- ✓ Execute evaluation pipelines
+- ✓ Generate synthetic test conversations
+- ✓ Evaluate agent performance with business metrics
+- ✓ Identify areas for improvement
+- ✓ Validate agent behavior before production deployment
+- ✓ Catch regressions when updating prompts or models
+
+---
+
+### 5.6 Follow the Flow with Observability
+
+(Content to be added)
+
+---
+
+## 6. GOING DEEPER: COMPONENT DOCUMENTATION
+
+Now that you have the system running, dive deeper into each component.
+
+### 6.1 Core Platform
+
+**Request Manager**
+- Full documentation: `request-manager/README.md`
+- Topics: Session management, request normalization, routing logic
+- API Reference: `API_REFERENCE.md`
+
+**Agent Service**
+- Full documentation: `agent-service/README.md` (TBD)
+- Topics: LlamaStack integration, tool calling, streaming responses
+- Architecture: `ARCHITECTURE_DIAGRAMS.md`
+
+**Integration Dispatcher**
+- Full documentation: `integration-dispatcher/README.md` (TBD)
+- Topics: Multi-channel delivery, integration handlers, user overrides
+- Integration setup: `INTEGRATION_GUIDE.md`
+
+**Shared Libraries**
+- `shared-models`: Database models, schemas, migrations
+- `shared-clients`: HTTP client implementations
+- Documentation: `shared-clients/README.md`
+
+---
+
+### 6.2 Agent Configuration
+
+**Asset Manager**
+- Full documentation: `asset-manager/README.md`
+- Topics: Agent registration, knowledge base creation, tool groups
+- Local testing: `asset-manager/local_testing/README.md`
+
+**Agent Configurations**
+- Directory: `asset-manager/config/agents/`
+- Examples: `routing-agent.yaml`, `laptop-refresh.yaml`
+- Guide: Create your own agent YAML files
+
+**Prompt Configuration**
+- Guide: `docs/PROMPT_CONFIGURATION_GUIDE.md`
+- Part of configuring the agent covered under Agent Configurations
+- Topics: System prompts, few-shot examples, prompt engineering
+
+**Knowledge Bases**
+- Directory: `asset-manager/config/knowledge_bases/`
+- Structure: One directory per knowledge base
+- Format: `.txt` files automatically indexed
+
+**MCP Servers**
+- ServiceNow: `mcp-servers/snow/README.md`
+- Creating new MCP: `TOOL_INTEGRATION_GUIDE.md`
+
+---
+
+### 6.3 External Integrations
+
+**Slack Setup**
+- Guide: `SLACK_SETUP.md`
+- Topics: App creation, OAuth, event subscriptions
+
+**ServiceNow Integration**
+- (Documentation TBD)
+
+---
+
+### 6.4 Quality & Operations
+
+**Evaluation Framework**
+- Full documentation: `evaluations/README.md`
+- Topics: Conversation flows, metrics, generation, pipeline
+
+**Observability**
+- Guide: `tracing-config/README.md`
+- Topics: OpenTelemetry, Jaeger, distributed tracing
+
+---
+
+## 7. CUSTOMIZING FOR YOUR USE CASE
+
+The laptop refresh example demonstrates all components. This section guides you in adapting the blueprint for your own IT process.
+
+### 7.1 Planning Your Use Case
+
+#### Step 1: Define Your IT Process
+
+Questions to answer:
+- What IT process are you automating? (PIA, RFP, access requests, etc.)
+- What are the steps a user goes through?
+- What information does the agent need to collect?
+- What systems does the agent need to interact with?
+- What policies or rules govern the process?
+- How do you measure success?
+
+**Example: Privacy Impact Assessment (PIA)**
+
+Process steps:
+1. User requests PIA assessment
+2. Agent asks about project details (name, scope, data types)
+3. Agent asks privacy-specific questions
+4. Agent evaluates risk level based on responses
+5. Agent generates PIA document
+6. Agent submits to compliance team
+
+#### Step 2: Identify Required Integrations
+
+For each external system, determine:
+- What data do you need to read?
+- What actions do you need to perform?
+- Does an API exist?
+- What authentication is required?
+
+**Example: PIA Assessment**
+- Compliance system API: Submit PIA documents
+- HR system: Get employee and project info
+- Document storage: Save generated PIAs
+- Email: Notify compliance team
+
+#### Step 3: Map Knowledge Requirements
+
+What knowledge does the agent need?
+- Policy documents
+- Process guidelines
+- Templates
+- FAQs
+- Legal/compliance requirements
+
+**Example: PIA Assessment**
+- Privacy laws and regulations
+- PIA question templates
+- Risk assessment criteria
+- Data classification guidelines
+- Example PIAs for reference
+
+#### Step 4: Define Success Metrics
+
+How will you evaluate the agent?
+- Process completion rate
+- Information accuracy
+- Policy compliance
+- User satisfaction
+- Time to completion
+
+**Example: PIA Assessment**
+- Did agent ask all required privacy questions?
+- Was risk level assessed correctly?
+- Did generated PIA meet compliance standards?
+- Was submission successful?
