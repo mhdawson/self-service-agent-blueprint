@@ -4,7 +4,7 @@
 
 ### 1.1 Who Is This For?
 
-This quick start guide is designed for:
+This quickstart guide is designed for:
 
 - **IT teams** implementing AI-driven self-service solutions
 - **DevOps engineers** deploying agent-based systems
@@ -19,7 +19,7 @@ The key value propositions for implementing IT processes with generative AI incl
 
 * **Reduced employee time to complete common requests.** The system helps employees create their requests by helping them understand the options and required information for the request and helps employees submit those requests once they are ready.
 * **Higher compliance to process standards.** Requests will be more complete and aligned with process standards. This will reduce the need to contact the requesting employee for additional information and reduce time and effort to review and complete requests.
-* **Fewer rejected requests due missing/incorrect information.** Rejected requests are frustrating for employees and leads to lower employee satisfaction. Avoiding request rejection and reducing back and forth on requests will improve employee satisfaction.
+* **Fewer rejected requests due to missing/incorrect information.** Rejected requests are frustrating for employees and leads to lower employee satisfaction. Avoiding request rejection and reducing back and forth on requests will improve employee satisfaction.
 * **Shorter time to close a ticket.** The system helps tickets to close faster, improving throughput and reducing ticket idle time.
 
 ### 1.3 Example Use Cases
@@ -27,18 +27,18 @@ The key value propositions for implementing IT processes with generative AI incl
 IT processes that are suitable for automation with generative AI include:
 
 * Laptop refresh requests
-* Privacy Impact Assessment (PIA) assessment
+* Privacy Impact Assessment (PIA)
 * RFP generation
 * Access request processing
 * Software license requests
 
 ### 1.4 What This Quickstart Provides
 
-This quickstart provides the framework, components and knowledge to accelerate your journey to deploying generative AI based self-service implementations. Many AI based IT process implementations should be able to share common components within an enterprise. The addition of an Agent configuration file, along with additional tools, knowledge bases and evaluations complete the implementation for a specific use case. Often no code changes to the common components will be required to add additional tools, knowledge bases or agents.
+This quickstart provides the framework, components and knowledge to accelerate your journey to deploying generative AI based self-service implementations. Many AI based IT process implementations should be able to share common components within an enterprise. The addition of agent configuration files, along with additional tools, knowledge bases and evaluations complete the implementation for a specific use case. Often no code changes to the common components will be required to add support for an additional use case.
 
 ### 1.5 What You'll Build
 
-The quick start provides implementations of the common components along with the process specific pieces needed to support the laptop refresh IT process as a concrete implementation.
+The quickstart provides implementations of the common components along with the process specific pieces needed to support the laptop refresh IT process as a concrete implementation.
 
 **Time to complete:** 30-60 minutes (depending on deployment mode)
 
@@ -46,7 +46,8 @@ By the end of this quickstart, you will have:
 - A fully functional AI agent system deployed
 - A working laptop refresh agent with knowledge bases and tools
 - Completed evaluation runs demonstrating agent quality
-- (Optional) Slack integration for real-world testing
+- (Optional) Slack integration
+- (Optional) ServiceNow integration for real ticket creation
 - Understanding of how to customize for your own use cases
 
 ### 1.6 Architecture Overview
@@ -57,31 +58,31 @@ The self-service agent quickstart provides a reusable platform for building AI-d
 
 In addition to the base components, the quickstart includes an evaluation framework and integration with OpenTelemetry support in OpenShift for observability.
 
-**Why Evaluation Matters:**
+**Why Evaluations Matter:**
 
-Generative AI agents are non-deterministic by nature, meaning their responses can vary across conversations even with identical inputs. This makes traditional software testing approaches insufficient. The evaluation framework addresses this challenge by providing comprehensive validation capabilities that are crucial for successfully developing and iterating on agentic IT process implementations. The framework validates business-specific requirements—such as policy compliance and information gathering—ensuring agents meet quality standards before deployment and catch regressions during updates.
+Generative AI agents are non-deterministic by nature, meaning their responses can vary across conversations even with identical inputs. This makes traditional software testing approaches insufficient. The evaluation framework addresses this challenge by providing capabilities that are crucial for successfully developing and iterating on agentic IT process implementations. The framework validates business-specific requirements—such as policy compliance and information gathering—ensuring agents meet quality standards before deployment and catch regressions during updates.
 
 **Why Observability Matters:**
 
-Agentic systems involve complex interactions between multiple components—routing agents, specialist agents, knowledge bases, MCP servers, and external systems—making production debugging challenging without proper visibility. The OpenTelemetry integration provides distributed tracing across the entire request lifecycle, enabling teams to understand how requests flow through the system, identify performance bottlenecks, and diagnose issues in production. This visibility is essential for tracking LLM token usage and costs, monitoring agent handoffs between routing and specialist agents, debugging failed external system integrations, and understanding user interaction patterns. By integrating with OpenShift's observability stack, teams gain unified monitoring across all platform components alongside their existing infrastructure metrics.
+Agentic systems involve complex interactions between multiple components—routing agents, specialist agents, knowledge bases, MCP servers, and external systems—making production debugging challenging without proper visibility. The OpenTelemetry integration provides distributed tracing across the entire request lifecycle, enabling teams to understand how requests flow through the system, identify performance bottlenecks, and diagnose issues in production. This visibility is essential for monitoring agent handoffs between routing and specialist agents, debugging failed external system integrations, and understanding user interaction patterns. By integrating with OpenShift's observability stack, teams gain unified monitoring across all platform components alongside their existing infrastructure metrics.
 
 **Key Request Flow:**
 1. User initiates request through any communications channel (Slack, Email, API, Web)
-2. Request Manager validates and routes router agent
-3. Router agent interacts with the user to find out what the user needs 
-4. Router agent hands session off to specialist agent to complete the request
-5. Specialist agent interacts with user to complete request using available knowledge bases and mcp servers
+2. Request Manager validates request and routes to routing agent
+3. Routing agent interacts with the user to find out what the user needs
+4. Routing agent hands session off to specialist agent to complete the request
+5. Specialist agent interacts with user to complete request using available knowledge bases and MCP servers
 
 ### 1.7 Laptop Refresh Implementation
 
-The laptop refresh use case is implemented by adding the following specific components:
+The laptop refresh use case is implemented by adding the following components:
 
 1. MCP server integrated with ServiceNow that can:
-   * provide existing laptop information for an employee
-   * submit a refresh request 
+   * retrieve existing laptop information for an employee
+   * submit a refresh request on behalf of an employee
 2. Laptop refresh knowledge base that includes laptop refresh policy and available
    laptop options per region
-3. Router agent that knows how to route to the Laptop refresh agent
+3. Routing agent that knows how to route to the laptop refresh agent
 4. Laptop refresh agent configured with prompts for the refresh process
 5. A set of evaluations specific to the laptop refresh IT process
 
@@ -188,20 +189,18 @@ Before you begin, ensure you have:
 
 ### 2.2 Environment Requirements
 
-All deployment modes require an OpenShift cluster:
+Both deployment modes require a Kubernetes-based cluster:
 
 **TESTING MODE (Mock Eventing):**
 * OpenShift or Kubernetes cluster
 * No special operators required
 * Access to LlamaStack/LLM endpoint
-* Mock eventing service for testing event-driven flows
 
 **PRODUCTION MODE (Knative Eventing):**
 * OpenShift cluster with:
   - OpenShift Serverless Operator
   - Streams for Apache Kafka Operator
 * Access to LlamaStack/LLM endpoint
-* Full Knative eventing infrastructure
 
 ### 2.3 Access Requirements
 
@@ -294,7 +293,7 @@ The blueprint consists of reusable **core platform components** and **use-case-s
 
 **Key Capabilities:**
 - **Agent Orchestration:** Routes requests to appropriate agents (routing agent → specialist agents), managing handoffs and conversation context
-  **** Uses agents configured by Asset manager
+- **Configuration-Driven:** Uses agents configured by Asset Manager
 - **Generic Design:** All domain logic comes from agent configurations registered via Asset Manager—no hardcoded use-case behavior
 
 ---
@@ -317,10 +316,6 @@ The blueprint consists of reusable **core platform components** and **use-case-s
 **Key Capabilities:**
 - **Agent Registration:** Reads YAML files from `asset-manager/config/agents/`, registers agents with their instructions, tools, and knowledge bases
 - **Knowledge Base Creation:** Processes text documents, creates embeddings, builds vector databases, registers for RAG queries
-
-**Example:** Kubernetes Job runs at initialization → Reads routing agent + laptop refresh specialist configs → Processes laptop knowledge base documents → Registers ServiceNow and Employee Info tool groups → Agent environment ready in minutes.
-
-**For Your Use Case:** Create agent YAML, add knowledge documents to directory, configure tool groups, deploy—Asset Manager handles LlamaStack registration automatically.
 
 ---
 
@@ -357,15 +352,12 @@ The blueprint consists of reusable **core platform components** and **use-case-s
 - **Slack**: Real-time conversations in Slack workspace
 - **Email**: Asynchronous notifications and updates
 - **API/CLI**: Programmatic access and automation
-- **Web**: Browser-based interactions
 
 **Key Capabilities:**
 - Meet users where they work—no additional tools required
 - Support multiple channels simultaneously (Slack conversation, email confirmations)
 - Fully reusable across all use cases
 - Extensible architecture for custom channels (Teams, mobile apps)
-
-**Example:** Laptop refresh via Slack → Email confirmation when ticket created → API integration with employee portals
 
 ---
 
@@ -415,7 +407,7 @@ The blueprint consists of reusable **core platform components** and **use-case-s
 
 ### 4.2 Laptop Refresh Specific Components
 
-These components demonstrate how to customize the quickstart for a specific IT process. Apply the same patterns for your own use cases (PIA, RFP, etc.).
+These components build on the common components to implement the laptop refresh process. Apply the same patterns for your own use cases (PIA, RFP, etc.).
 
 #### 4.2.1 MCP Servers
 
@@ -424,29 +416,19 @@ MCP servers allow agents to interact with external systems through standardized 
 **Laptop Refresh MCP Server:**
 
 **ServiceNow MCP (2 tools):**
-- `get_employee_laptop_info`: Retrieves employee's laptop information including model, purchase date, age, warranty status, and employee details (name, location). Supports lookup by employee ID or email address.
-- `open_laptop_refresh_ticket`: Creates ServiceNow laptop refresh ticket. Requires employee ID, employee name, business justification, and ServiceNow laptop code (e.g., `apple_mac_book_air_m_3`). Returns ticket number and details.
+- `get_employee_laptop_info`: Retrieves employee's laptop information including model, purchase date, age, warranty status, and employee details (name, location). Supports lookup by email address.
+- `open_laptop_refresh_ticket`: Creates ServiceNow laptop refresh ticket. Returns ticket number and details.
 
 **Implementation Details:**
 - Supports both mock data (for testing/development) and real ServiceNow API integration
 - Uses `AUTHORITATIVE_USER_ID` header for authenticated requests
 - Mock data includes pre-defined employees with laptop information for evaluation testing
 
-**For Your Use Case:**
-- **PIA Assessment:** Create Compliance MCP with tools like `submit_pia_assessment`, `check_privacy_requirements`, `generate_pia_report`
-- **RFP Generation:** Create Procurement MCP with tools like `create_rfp_request`, `get_vendor_requirements`, `submit_procurement_request`
-- **Pattern:** Create MCP server per backend system, implement tools using FastMCP framework, register with Asset Manager
-
 ---
 
 #### 4.2.2 Knowledge Bases
 
-**Purpose:** Retrieval-Augmented Generation (RAG) system that grounds agent responses in authoritative organizational documents, reducing hallucination.
-
-**Why Knowledge Bases Matter:**
-- **Accuracy:** Agents retrieve information from policy documents rather than guessing, preventing incorrect policy explanations
-- **Maintainability:** Update policies by editing text files and redeploying—no LLM retraining needed
-- **Scalability:** Handles policies exceeding LLM context windows by retrieving only relevant sections via semantic search
+**Purpose:** Retrieval-Augmented Generation (RAG) system that grounds agent responses in authoritative organizational documents.
 
 **Technical Implementation:** Documents chunked → converted to vector embeddings → stored in vector database → semantic search retrieves relevant chunks → provided to LLM as context
 
@@ -456,10 +438,6 @@ MCP servers allow agents to interact with external systems through standardized 
 
 **Conversational Policy Explanation:** User asks "Why am I not eligible?" → Agent retrieves and explains specific unmet criteria
 
-**For Your Use Case:**
-- **PIA Assessment:** `privacy_laws.txt`, `pia_questionnaire.txt`, `risk_assessment_criteria.txt`, `data_classification.txt`
-- **RFP Generation:** `rfp_guidelines.txt`, `vendor_requirements.txt`, `procurement_policies.txt`, `contract_terms.txt`
-
 **Pattern:** Create directory under `asset-manager/config/knowledge_bases/`, add .txt files, Asset Manager handles chunking, embeddings, vector database creation, and LlamaStack registration.
 
 ---
@@ -467,11 +445,6 @@ MCP servers allow agents to interact with external systems through standardized 
 #### 4.2.3 Agents
 
 **Purpose:** YAML configurations defining agent behavior, system instructions, accessible tools, and knowledge bases—registered with LlamaStack by Asset Manager.
-
-**Why Specialized Agents Matter:**
-- **Domain Focus:** Each agent configured for specific IT process (laptop refresh, PIA, RFP) with tailored instructions, tools, and knowledge bases
-- **Maintainability:** Focused instructions for one process—not trying to cover every scenario in a single monolithic prompt
-- **Configuration-Driven:** Update behavior by editing version-controlled YAML files—no code compilation or redeployment needed
 
 **Laptop Refresh Agent Architecture (Routing Pattern):**
 
@@ -484,15 +457,9 @@ MCP servers allow agents to interact with external systems through standardized 
 **Laptop Refresh Specialist Agent:**
 - **Role:** Domain expert guiding laptop refresh process
 - **Instructions:** Process flow (check eligibility, present options, create ticket), compliance requirements, interaction style
-- **Tools:** ServiceNow tools (eligibility, options, ticket creation), Employee Info tools
+- **Tools:** ServiceNow tools (laptop information, ticket creation)
 - **Knowledge Base:** `laptop-refresh` knowledge base for policy questions
 - **Capabilities:** Queries knowledge base for policies, calls tools to check eligibility/retrieve options/create tickets
-
-**For Your Use Case:**
-- **PIA Assessment:** Create `pia-specialist.yaml` with PIA process instructions, `pia-knowledge` base, Compliance MCP tools (`check_data_sensitivity`, `generate_pia_document`, `submit_for_review`)
-- **Routing Updates:** Add "If user mentions privacy impact assessment, PIA, data protection, or GDPR compliance, route to pia-specialist"
-
-**Pattern:** Version-controlled in Git, reviewed in PRs, tested in dev environments—treats agent behavior as code with proper engineering discipline.
 
 ---
 
@@ -502,7 +469,6 @@ MCP servers allow agents to interact with external systems through standardized 
 
 **Predefined Conversation Flows:**
 - **Success flow**: Complete laptop refresh request from greeting through ticket creation
-- **Edge cases**: Ineligible employee, missing information, policy questions
 - **Location**: `evaluations/conversations_config/conversations/`
 
 **Custom Evaluation Metrics** (in `get_deepeval_metrics.py`):
@@ -519,24 +485,9 @@ MCP servers allow agents to interact with external systems through standardized 
 - **Confirmation Before Ticket Creation**: Agent asks user confirmation (no-employee-id flow)
 - **Employee ID Requested**: Agent requests employee ID (standard flow)
 
-**For Your Use Case:**
-1. Create conversation flows in `evaluations/conversations_config/conversations/your-use-case/`
-   - Update chatbot role in conversation JSON files (e.g., "laptop refresh specialist" → "PIA specialist")
-   - Define user inputs and expected agent behaviors for your process
-2. Update `generator.py` for synthetic conversation generation:
-   - Modify `_create_conversation_golden()` function to define your use case scenario:
-     - `scenario`: Description of what the user wants to accomplish (e.g., "Employee wants to complete a PIA assessment...")
-     - `expected_outcome`: What successful completion looks like (e.g., "PIA document submitted to compliance team")
-     - `user_description`: User persona details relevant to your process
-   - Update `authoritative_user_ids` file with test user identifiers for your process
-3. Define custom metrics in `get_deepeval_metrics.py`:
-   - **PIA**: Verify all privacy questions asked, risk assessment accuracy, document completeness
-   - **RFP**: Validate RFP structure, vendor requirements coverage, procurement compliance
-4. Run: `python evaluate.py`
-
 ---
 
-## 5. HANDS-ON QUICK START
+## 5. HANDS-ON QUICKSTART
 
 This section walks you through deploying and testing the laptop refresh agent on OpenShift.
 
@@ -733,7 +684,7 @@ Slack integration enables real-world testing with actual users in your workspace
 
 #### Step 1: Set Up Slack App
 
-See `SLACK_SETUP.md` for detailed instructions.
+See [`SLACK_SETUP.md`](SLACK_SETUP.md) for detailed instructions.
 
 **Summary:**
 1. Create Slack app at api.slack.com/apps
@@ -899,12 +850,12 @@ You should see the complete conversation with agent responses at each turn.
 Create additional test scenarios using the conversation generator:
 
 ```bash
-# Generate 20 synthetic conversations
-python generator.py 20 --max-turns 20
+# Generate 5 synthetic conversations
+python generator.py 5 --max-turns 20
 ```
 
 **Expected outcome:**
-- ✓ 20 generated conversations saved to `results/conversation_results/`
+- ✓ 5 generated conversations saved to `results/conversation_results/`
 - ✓ Diverse scenarios with varied user inputs
 - ✓ Different edge cases automatically explored
 
@@ -944,12 +895,12 @@ Run the full pipeline in one command:
 
 ```bash
 # Complete pipeline: predefined + generated + evaluation
-python evaluate.py --num-conversations 30
+python evaluate.py --num-conversations 5
 ```
 
 **Expected outcome:**
 - ✓ Predefined flows executed
-- ✓ 30 synthetic conversations generated
+- ✓ 5 synthetic conversations generated
 - ✓ All conversations evaluated
 - ✓ Comprehensive results report with aggregate metrics
 - ✓ Identification of failing conversations for debugging
@@ -979,31 +930,31 @@ Now that you have the system running, dive deeper into each component.
 **Request Manager**
 - Full documentation: `request-manager/README.md`
 - Topics: Session management, request normalization, routing logic
-- API Reference: `API_REFERENCE.md`
+- API Reference: [`API_REFERENCE.md`](API_REFERENCE.md)
 
 **Agent Service**
 - Full documentation: `agent-service/README.md` (TBD)
 - Topics: LlamaStack integration, tool calling, streaming responses
-- Architecture: `ARCHITECTURE_DIAGRAMS.md`
+- Architecture: [`ARCHITECTURE_DIAGRAMS.md`](ARCHITECTURE_DIAGRAMS.md)
 
 **Integration Dispatcher**
 - Full documentation: `integration-dispatcher/README.md` (TBD)
 - Topics: Multi-channel delivery, integration handlers, user overrides
-- Integration setup: `INTEGRATION_GUIDE.md`
+- Integration setup: [`INTEGRATION_GUIDE.md`](INTEGRATION_GUIDE.md)
 
 **Shared Libraries**
 - `shared-models`: Database models, schemas, migrations
 - `shared-clients`: HTTP client implementations
-- Documentation: `shared-clients/README.md`
+- Documentation: [`shared-clients/README.md`](shared-clients/README.md)
 
 ---
 
 ### 6.2 Agent Configuration
 
 **Asset Manager**
-- Full documentation: `asset-manager/README.md`
+- Full documentation: [`asset-manager/README.md`](asset-manager/README.md)
 - Topics: Agent registration, knowledge base creation, tool groups
-- Local testing: `asset-manager/local_testing/README.md`
+- Local testing: [`asset-manager/local_testing/README.md`](asset-manager/local_testing/README.md)
 
 **Agent Configurations**
 - Directory: `asset-manager/config/agents/`
@@ -1021,15 +972,15 @@ Now that you have the system running, dive deeper into each component.
 - Format: `.txt` files automatically indexed
 
 **MCP Servers**
-- ServiceNow: `mcp-servers/snow/README.md`
-- Creating new MCP: `TOOL_INTEGRATION_GUIDE.md`
+- ServiceNow: [`mcp-servers/snow/README.md`](mcp-servers/snow/README.md)
+- Creating new MCP: [`TOOL_INTEGRATION_GUIDE.md`](TOOL_INTEGRATION_GUIDE.md)
 
 ---
 
 ### 6.3 External Integrations
 
 **Slack Setup**
-- Guide: `SLACK_SETUP.md`
+- Guide: [`SLACK_SETUP.md`](SLACK_SETUP.md)
 - Topics: App creation, OAuth, event subscriptions
 
 **ServiceNow Integration**
