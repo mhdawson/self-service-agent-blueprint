@@ -1,5 +1,61 @@
 # Self-Service Agent Quickstart
 
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+   - [Who Is This For?](#11-who-is-this-for)
+   - [The Business Case for AI-Driven IT Self-Service](#12-the-business-case-for-ai-driven-it-self-service)
+   - [Example Use Cases](#13-example-use-cases)
+   - [What This Quickstart Provides](#14-what-this-quickstart-provides)
+   - [What You'll Build](#15-what-youll-build)
+   - [Architecture Overview](#16-architecture-overview)
+   - [Laptop Refresh Implementation](#17-laptop-refresh-implementation)
+   - [Customizing for Your Use Case](#18-customizing-for-your-use-case)
+
+2. [Prerequisites](#2-prerequisites)
+   - [Required Tools](#21-required-tools)
+   - [Environment Requirements](#22-environment-requirements)
+   - [Access Requirements](#23-access-requirements)
+   - [Knowledge Prerequisites](#24-knowledge-prerequisites)
+   - [Time Estimate](#25-time-estimate)
+
+3. [Architecture & Deployment Modes](#3-architecture--deployment-modes)
+   - [Deployment Modes](#31-deployment-modes)
+   - [Request Flow](#32-request-flow)
+
+4. [Component Overview](#4-component-overview)
+   - [Core Platform Components](#41-core-platform-components-reusable-across-use-cases)
+   - [Laptop Refresh Specific Components](#42-laptop-refresh-specific-components)
+
+5. [Hands-On Quickstart](#5-hands-on-quickstart)
+   - [Deploy to OpenShift](#51-deploy-to-openshift)
+   - [Interact with the CLI](#52-interact-with-the-cli)
+   - [Use Slack Integration (Optional)](#53-use-slack-integration-optional)
+   - [Integration with Real ServiceNow (Optional)](#54-integration-with-real-servicenow-optional)
+   - [Run Evaluations](#55-run-evaluations)
+   - [Follow the Flow with Observability](#56-follow-the-flow-with-observability)
+
+6. [Going Deeper: Component Documentation](#6-going-deeper-component-documentation)
+   - [Core Platform](#61-core-platform)
+   - [Agent Configuration](#62-agent-configuration)
+   - [External Integrations](#63-external-integrations)
+   - [Quality & Operations](#64-quality--operations)
+
+7. [Customizing for Your Use Case](#7-customizing-for-your-use-case)
+   - [Planning Your Use Case](#71-planning-your-use-case)
+   - [Implementation Steps](#72-implementation-steps)
+   - [Testing and Validation](#73-testing-and-validation)
+   - [Deployment and Iteration](#74-deployment-and-iteration)
+
+8. [Next Steps and Additional Resources](#8-next-steps-and-additional-resources)
+   - [What You've Accomplished](#81-what-youve-accomplished)
+   - [Recommended Next Steps](#82-recommended-next-steps)
+   - [Additional Documentation](#83-additional-documentation)
+   - [Getting Help](#84-getting-help)
+   - [Contributing](#85-contributing)
+
+---
+
 ## 1. INTRODUCTION
 
 ### 1.1 Who Is This For?
@@ -13,7 +69,7 @@ This quickstart guide is designed for:
 
 ### 1.2 The Business Case for AI-Driven IT Self-Service
 
-Many organizations are working to support IT processes through generative AI based self-service implementations. IT teams with Red Hat have already started on this journey and the team building this quickstart met with those teams to incorporate the lessons learned so far into the quickstart.
+Many organizations are working to support IT processes through generative AI based self-service implementations. IT teams at Red Hat have already started on this journey. The team building this quickstart met with those teams to incorporate the lessons learned into this guide.
 
 The key value propositions for implementing IT processes with generative AI include:
 
@@ -34,7 +90,7 @@ IT processes that are suitable for automation with generative AI include:
 
 ### 1.4 What This Quickstart Provides
 
-This quickstart provides the framework, components and knowledge to accelerate your journey to deploying generative AI based self-service implementations. Many AI based IT process implementations should be able to share common components within an enterprise. The addition of agent configuration files, along with additional tools, knowledge bases and evaluations complete the implementation for a specific use case. Often no code changes to the common components will be required to add support for an additional use case.
+This quickstart provides the framework, components and knowledge to accelerate your journey to deploying generative AI based self-service implementations. Many AI based IT process implementations should be able to share common components within an enterprise. The addition of agent configuration files, along with additional tools, knowledge bases, and evaluations, completes the implementation for a specific use case. Often no code changes to the common components will be required to add support for an additional use case.
 
 ### 1.5 What You'll Build
 
@@ -160,7 +216,7 @@ Is there anything else I can help you with?
 To adapt this quickstart for your specific IT process:
 
 - Replace laptop refresh agent with your specialist agent (e.g., PIA, RFP)
-- Update the router agent to be able to route to your new specialist agent
+- Update the routing agent to be able to route to your new specialist agent
 - Add MCP servers for your external systems
 - Create knowledge base with your policies and documentation
 - Build evaluation suite for your business metrics
@@ -687,7 +743,7 @@ Slack integration enables real-world testing with actual users in your workspace
 See [`SLACK_SETUP.md`](SLACK_SETUP.md) for detailed instructions.
 
 **Summary:**
-1. Create Slack app at api.slack.com/apps
+1. Create Slack app at [api.slack.com/apps](https://api.slack.com/apps)
 2. Configure OAuth scopes (chat:write, channels:history, etc.)
 3. Enable Event Subscriptions
 4. Set Request URL to your Integration Dispatcher route
@@ -820,7 +876,8 @@ export LLM_API_TOKEN=your-evaluation-llm-token
 export LLM_URL=https://your-evaluation-llm-endpoint
 export LLM_ID=your-model-id
 
-# Install evaluation dependencies
+# Install evaluation dependencies (using pip for evaluation framework)
+# Note: The evaluation framework uses pip; the main services use uv
 pip install -e .
 ```
 
@@ -917,7 +974,7 @@ python evaluate.py --num-conversations 5
 
 ### 5.6 Follow the Flow with Observability
 
-(Content to be added)
+(Documentation TBD)
 
 ---
 
@@ -930,22 +987,19 @@ Now that you have the system running, dive deeper into each component.
 **Request Manager**
 - Full documentation: `request-manager/README.md`
 - Topics: Session management, request normalization, routing logic
-- API Reference: [`API_REFERENCE.md`](API_REFERENCE.md)
 
 **Agent Service**
 - Full documentation: `agent-service/README.md` (TBD)
 - Topics: LlamaStack integration, tool calling, streaming responses
-- Architecture: [`ARCHITECTURE_DIAGRAMS.md`](ARCHITECTURE_DIAGRAMS.md)
 
 **Integration Dispatcher**
 - Full documentation: `integration-dispatcher/README.md` (TBD)
 - Topics: Multi-channel delivery, integration handlers, user overrides
-- Integration setup: [`INTEGRATION_GUIDE.md`](INTEGRATION_GUIDE.md)
 
 **Shared Libraries**
+- Full documentation: [`shared-clients/README.md`](shared-clients/README.md)
 - `shared-models`: Database models, schemas, migrations
 - `shared-clients`: HTTP client implementations
-- Documentation: [`shared-clients/README.md`](shared-clients/README.md)
 
 ---
 
@@ -954,33 +1008,32 @@ Now that you have the system running, dive deeper into each component.
 **Asset Manager**
 - Full documentation: [`asset-manager/README.md`](asset-manager/README.md)
 - Topics: Agent registration, knowledge base creation, tool groups
-- Local testing: [`asset-manager/local_testing/README.md`](asset-manager/local_testing/README.md)
 
 **Agent Configurations**
+- Full documentation: `asset-manager/config/agents/README.md` (TBD)
 - Directory: `asset-manager/config/agents/`
 - Examples: `routing-agent.yaml`, `laptop-refresh.yaml`
-- Guide: Create your own agent YAML files
 
 **Prompt Configuration**
-- Guide: `docs/PROMPT_CONFIGURATION_GUIDE.md`
-- Part of configuring the agent covered under Agent Configurations
+- Full documentation: [`docs/PROMPT_CONFIGURATION_GUIDE.md`](docs/PROMPT_CONFIGURATION_GUIDE.md)
 - Topics: System prompts, few-shot examples, prompt engineering
 
 **Knowledge Bases**
+- Full documentation: `asset-manager/config/knowledge_bases/README.md` (TBD)
 - Directory: `asset-manager/config/knowledge_bases/`
 - Structure: One directory per knowledge base
 - Format: `.txt` files automatically indexed
 
 **MCP Servers**
-- ServiceNow: [`mcp-servers/snow/README.md`](mcp-servers/snow/README.md)
-- Creating new MCP: [`TOOL_INTEGRATION_GUIDE.md`](TOOL_INTEGRATION_GUIDE.md)
+- Full documentation: [`mcp-servers/snow/README.md`](mcp-servers/snow/README.md)
+- Topics: ServiceNow integration, tool implementation
 
 ---
 
 ### 6.3 External Integrations
 
 **Slack Setup**
-- Guide: [`SLACK_SETUP.md`](SLACK_SETUP.md)
+- Full documentation: [`SLACK_SETUP.md`](SLACK_SETUP.md)
 - Topics: App creation, OAuth, event subscriptions
 
 **ServiceNow Integration**
@@ -991,11 +1044,11 @@ Now that you have the system running, dive deeper into each component.
 ### 6.4 Quality & Operations
 
 **Evaluation Framework**
-- Full documentation: `evaluations/README.md`
+- Full documentation: [`evaluations/README.md`](evaluations/README.md)
 - Topics: Conversation flows, metrics, generation, pipeline
 
 **Observability**
-- Guide: `tracing-config/README.md`
+- Full documentation: `tracing-config/README.md` (TBD)
 - Topics: OpenTelemetry, Jaeger, distributed tracing
 
 ---
@@ -1070,3 +1123,40 @@ How will you evaluate the agent?
 - Was risk level assessed correctly?
 - Did generated PIA meet compliance standards?
 - Was submission successful?
+
+## 8. NEXT STEPS AND ADDITIONAL RESOURCES
+
+### 8.1 What You've Accomplished
+
+By completing this quickstart, you have:
+
+- ✓ Deployed a fully functional AI agent system on OpenShift
+- ✓ Understood the core platform architecture and components
+- ✓ Tested the laptop refresh agent through multiple channels
+- ✓ Run evaluations to validate agent behavior
+- ✓ Learned how to customize the system for your own use cases
+
+### 8.2 Recommended Next Steps
+
+**For Development Teams:**
+1. Explore the component documentation in Section 6 for deeper technical details
+2. Review the evaluation framework to understand quality metrics
+3. Experiment with customizing the laptop refresh agent prompts
+4. Set up observability and monitoring for your deployment
+
+**For Organizations Planning Production Deployment:**
+1. Plan your transition from testing mode to production mode (Knative Eventing)
+2. Identify your first use case for customization
+3. Establish evaluation criteria and quality metrics for your use case
+4. Plan integration with your existing IT service management systems
+
+**For Customizing to Your Use Case:**
+1. Follow the planning guide in Section 7.1
+2. Review the laptop refresh implementation as a reference (Section 4.2)
+3. Start with agent configuration and knowledge base development
+4. Build MCP servers for your external systems
+5. Develop use-case-specific evaluation metrics
+
+---
+
+**Thank you for using the Self-Service Agent Quickstart!** We hope this guide helps you successfully deploy AI-driven IT process automation in your organization.
