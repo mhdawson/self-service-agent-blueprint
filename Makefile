@@ -299,6 +299,9 @@ help:
 	@echo "  test-long-resp-integration-request-mgr - Run long responses integration tests with Request Manager"
 	@echo "  test-long-concurrent-integration-request-mgr - Run long concurrent responses integration tests with Request Manager (concurrency=4)"
 	@echo ""
+	@echo "Evaluation Commands:"
+	@echo "  generate-audit-conversations        - Generate audit conversations from production threads (default: 4 threads)"
+	@echo ""
 	@echo "Utility Commands:"
 	@echo "  format                              - Run isort import sorting and Black formatting on entire codebase"
 	@echo "  lint                                - Run optimized linting (global isort/flake8 + per-directory mypy + logging patterns)"
@@ -376,6 +379,16 @@ help:
 	@echo "    VALIDATE_FULL_LAPTOP_DETAILS    - Enable full laptop details validation (default: true)"
 	@echo "                                        Set to 'false' to disable: VALIDATE_FULL_LAPTOP_DETAILS=false"
 	@echo "                                        When enabled, integration tests validate all laptop specification fields"
+	@echo ""
+	@echo "  Audit Conversation Generation:"
+	@echo "    AUDIT_START_DATE                  - Start date for thread retrieval (YYYY-MM-DD or 'YYYY-MM-DD HH:MM:SS')"
+	@echo "    AUDIT_END_DATE                    - End date for thread retrieval (YYYY-MM-DD or 'YYYY-MM-DD HH:MM:SS')"
+	@echo "    AUDIT_SAMPLE_SIZE                 - Number of threads to randomly sample (default: 4)"
+	@echo "    AUDIT_THREAD_IDS                  - Space-separated thread IDs (alternative to date range)"
+	@echo "    Examples:"
+	@echo "      make generate-audit-conversations AUDIT_START_DATE=2026-01-15 AUDIT_END_DATE=2026-01-16"
+	@echo "      make generate-audit-conversations AUDIT_START_DATE=2026-01-15 AUDIT_END_DATE=2026-01-16 AUDIT_SAMPLE_SIZE=10"
+	@echo "      make generate-audit-conversations AUDIT_THREAD_IDS='thread-1 thread-2 thread-3'"
 
 # Build function: $(call build_image,IMAGE_NAME,DESCRIPTION,CONTAINERFILE_PATH,BUILD_CONTEXT)
 define build_image
@@ -1072,6 +1085,51 @@ test-long-concurrent-integration-request-mgr:
 	@echo "Running long concurrent responses integration test with Request Manager..."
 	uv --directory evaluations run evaluate.py -n 10 --test-script chat-responses-request-mgr.py --reset-conversation --timeout=1800 --concurrency 4 --message-timeout 120 $(VALIDATE_LAPTOP_DETAILS_FLAG)
 	@echo "long concurrent responses integrations tests with Request Manager completed successfully!"
+
+# Audit conversation generation configuration
+# Default to current day if not specified
+AUDIT_START_DATE ?= $(shell date +%Y-%m-%d)
+AUDIT_END_DATE ?= $(shell date +%Y-%m-%d)
+AUDIT_SAMPLE_SIZE ?= 4
+AUDIT_THREAD_IDS ?=
+
+.PHONY: generate-audit-conversations
+generate-audit-conversations:
+ifeq ($(NAMESPACE),)
+	$(error NAMESPACE is required. Usage: make generate-audit-conversations NAMESPACE=your-namespace)
+endif
+	@echo "Generating audit conversations from production checkpoints (namespace: $(NAMESPACE))..."
+	@echo "Setting up port-forward to pgvector database..."
+	@PF_PID=""; \
+	cleanup() { \
+		if [ -n "$$PF_PID" ]; then \
+			echo "Cleaning up port-forward (PID: $$PF_PID)..."; \
+			kill $$PF_PID 2>/dev/null || true; \
+			wait $$PF_PID 2>/dev/null || true; \
+		fi; \
+	}; \
+	trap cleanup EXIT INT TERM; \
+	kubectl port-forward -n $(NAMESPACE) svc/pgvector 5433:5432 > /dev/null 2>&1 & \
+	PF_PID=$$!; \
+	echo "Port-forward started (PID: $$PF_PID), waiting for connection..."; \
+	sleep 3; \
+	export POSTGRES_HOST=localhost; \
+	export POSTGRES_PORT=5433; \
+	export POSTGRES_DB=$(POSTGRES_DBNAME); \
+	export POSTGRES_USER=$(POSTGRES_USER); \
+	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD); \
+	if [ -n "$(AUDIT_THREAD_IDS)" ]; then \
+		echo "Mode: Specific thread IDs"; \
+		uv --directory evaluations run generate-audit-conversations.py \
+			--thread-ids $(AUDIT_THREAD_IDS); \
+	else \
+		echo "Mode: Date range ($(AUDIT_START_DATE) to $(AUDIT_END_DATE), $(AUDIT_SAMPLE_SIZE) threads)"; \
+		uv --directory evaluations run generate-audit-conversations.py \
+			--start-date "$(AUDIT_START_DATE)" \
+			--end-date "$(AUDIT_END_DATE)" \
+			--sample-size $(AUDIT_SAMPLE_SIZE); \
+	fi; \
+	echo "Audit conversation generation completed successfully!"
 
 # Create namespace and deploy
 namespace:

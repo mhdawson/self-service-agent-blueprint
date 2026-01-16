@@ -30,6 +30,10 @@ dependencies = [
     "deepeval>=3.3.9",
     # LLM integration
     "openai>=1.99.0",
+    # Database and LangGraph for audit conversation generation
+    "psycopg[binary]>=3.1.0",
+    "langgraph>=0.6.7",
+    "langgraph-checkpoint-postgres>=2.0.0",
 ]
 
 [project.optional-dependencies]
