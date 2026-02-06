@@ -809,3 +809,36 @@ langfuse:
     initUserEmail: "admin@example.com"  # Admin user email
     initUserName: "Admin User"  # Admin user display name
     initUserPassword: "langgraph_password"  # Admin user password (change for production!)
+
+# A2A Agent Configuration
+# Agents are auto-discovered from agent-service/config/a2a-agents/*-card.json
+# This section is only needed to enable/disable A2A or override defaults
+a2aAgents:
+  enabled: true  # Set to false to disable all A2A agent deployments
+
+  # Optional: per-agent overrides (only specify if you need to override defaults)
+  # If not specified, smart defaults are applied automatically:
+  #   - Image: self-service-agent-{agent-name}
+  #   - Port: 8001
+  #   - Replicas: 1
+  #   - Resources: 512Mi/250m requests, 1Gi/500m limits
+  #   - Uvicorn Workers: 1 (single process)
+  agents: {}
+    # Example override (uncomment if needed):
+    # laptop-refresh-policy-agent:
+    #   image: "custom-image-name"  # Override: self-service-agent-laptop-refresh-policy-agent
+    #   port: 8002                   # Override: 8001
+    #   replicas: 2                  # Override: 1
+    #   uvicornWorkers: 2            # Override: 1 (run 2 worker processes for better throughput)
+    #   resources:
+    #     requests:
+    #       memory: "1Gi"            # Override: 512Mi
+    #       cpu: "500m"              # Override: 250m
+    #     limits:
+    #       memory: "2Gi"            # Override: 1Gi
+    #       cpu: "1000m"             # Override: 500m
+    #   env:
+    #     - name: "LOG_LEVEL"
+    #       value: "DEBUG"
+    #     - name: "REFRESH_INTERVAL_YEARS"
+    #       value: "5"

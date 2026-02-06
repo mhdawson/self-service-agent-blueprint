@@ -28,6 +28,9 @@ dependencies = [
     "langgraph-checkpoint-postgres>=2.0.0",
     "psycopg[binary]>=3.1.0",
     "openai>=1.0.0",
+    # Google ADK for A2A agent communication
+    "google-adk>=0.1.0",
+    "a2a-sdk[http-server]>=0.1.0",
     "pyyaml>=6.0.0",
     "langfuse>=3.0.0",
     "self-service-agent-shared-clients",

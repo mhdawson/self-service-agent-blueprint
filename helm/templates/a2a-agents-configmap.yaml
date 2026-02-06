@@ -1,0 +1,16 @@
+{{- if .Values.a2aAgents.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "self-service-agent.fullname" . }}-a2a-agents
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "self-service-agent.labels" . | nindent 4 }}
+    component: a2a-agents
+data:
+  # Load all *-card.json files from config directory
+  {{- range $path, $_ := .Files.Glob "agent-service/config/a2a-agents/*-card.json" }}
+  {{ base $path }}: |-
+{{ $.Files.Get $path | indent 4 }}
+  {{- end }}
+{{- end }}

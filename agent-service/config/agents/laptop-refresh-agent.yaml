@@ -30,3 +30,6 @@ mcp_servers:
     uri: "http://mcp-self-service-agent-snow:8000/mcp"
     require_approval: "never"
 knowledge_bases: ["laptop-refresh"]
+# A2A agents accessible to this agent
+a2a_agents:
+  - "laptop-refresh-policy-agent"

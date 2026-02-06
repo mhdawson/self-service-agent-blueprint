@@ -1,0 +1,32 @@
+{
+  "name": "Laptop Refresh Policy Agent",
+  "description": "Provides laptop refresh interval based on policy",
+  "version": "1.0.0",
+  "provider": {
+    "organization": "IT Self-Service",
+    "url": "https://it-service.example.com"
+  },
+  "url": "http://self-service-agent-a2a-laptop-refresh-policy-agent",
+  "protocolVersion": "1.0",
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "skills": [
+    {
+      "id": "get_refresh_interval",
+      "name": "Get Laptop Refresh Interval",
+      "description": "Returns the number of years between laptop refreshes",
+      "tags": ["policy", "laptop", "refresh"],
+      "examples": [
+        "What is the laptop refresh interval?",
+        "How often are laptops refreshed?",
+        "When should I refresh my laptop?"
+      ],
+      "inputModes": ["text/plain"],
+      "outputModes": ["text/plain"]
+    }
+  ]
+}

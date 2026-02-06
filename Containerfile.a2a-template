@@ -1,0 +1,65 @@
+# Multi-stage build for A2A agents
+# Build args must be defined before first FROM
+ARG AGENT_NAME
+ARG MODULE_NAME
+ARG UV_VERSION=0.8.9
+
+# Builder stage
+FROM registry.access.redhat.com/ubi9/python-312:latest as builder
+
+USER root
+# Install uv version (defaults to 0.8.9 to match CI, can be overridden via --build-arg UV_VERSION=<version>)
+ARG UV_VERSION
+RUN pip3 install --no-cache-dir uv==${UV_VERSION}
+
+WORKDIR /app
+
+# Copy agent files
+ARG AGENT_NAME
+COPY ${AGENT_NAME}/pyproject.toml ./${AGENT_NAME}/
+COPY ${AGENT_NAME}/src/ ./${AGENT_NAME}/src/
+WORKDIR /app/${AGENT_NAME}
+
+# Create virtual environment and install dependencies using Python 3.12
+RUN python3.12 -m venv .venv && \
+    .venv/bin/pip install --no-cache-dir --upgrade pip && \
+    .venv/bin/pip install --no-cache-dir .
+
+# Production stage
+FROM registry.access.redhat.com/ubi9/python-312-minimal:latest
+
+WORKDIR /app
+
+# Copy virtual environment from builder
+ARG AGENT_NAME
+COPY --from=builder /app/${AGENT_NAME}/.venv /app/.venv
+
+# Copy application source
+ARG MODULE_NAME
+COPY ${AGENT_NAME}/src/ ./src/
+COPY ${AGENT_NAME}/pyproject.toml ./
+COPY ${AGENT_NAME}/agent_card.json ./agent_card.json
+
+# Set environment variables
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/src:$PYTHONPATH"
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Set the module name as an environment variable
+ENV MODULE_NAME=${MODULE_NAME}
+
+# Set to non-root user
+USER 1001
+
+# Expose A2A agent port
+EXPOSE 8001
+
+# Run the application
+# Support optional UVICORN_WORKERS environment variable for multi-process concurrency
+CMD if [ -n "$UVICORN_WORKERS" ]; then \
+      python3 -m uvicorn $MODULE_NAME:app --host 0.0.0.0 --port 8001 --workers $UVICORN_WORKERS; \
+    else \
+      python3 -m uvicorn $MODULE_NAME:app --host 0.0.0.0 --port 8001; \
+    fi

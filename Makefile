@@ -75,6 +75,8 @@ MCP_SNOW_IMG ?= $(REGISTRY)/self-service-agent-snow-mcp:$(VERSION)
 MOCK_EVENTING_IMG ?= $(REGISTRY)/self-service-agent-mock-eventing:$(VERSION)
 MOCK_SERVICENOW_IMG ?= $(REGISTRY)/self-service-agent-mock-servicenow:$(VERSION)
 PROMPTGUARD_IMG ?= $(REGISTRY)/self-service-agent-promptguard:$(VERSION)
+# A2A Agent Images
+A2A_LAPTOP_REFRESH_POLICY_IMG ?= $(REGISTRY)/self-service-agent-laptop-refresh-policy-agent:$(VERSION)
 
 MAKEFLAGS += --no-print-directory
 
@@ -435,6 +437,18 @@ define build_template_image
 	@echo "Successfully built $(1)"
 endef
 
+# A2A agent build function: $(call build_a2a_agent,IMAGE_NAME,DESCRIPTION,AGENT_NAME,MODULE_NAME)
+define build_a2a_agent
+	@echo "Building $(2) using Containerfile.a2a-template"
+	$(CONTAINER_TOOL) build -t $(1) --platform=$(ARCH) \
+		-f Containerfile.a2a-template \
+		--build-arg AGENT_NAME=$(3) \
+		--build-arg MODULE_NAME=$(4) \
+		--build-arg UV_VERSION=$(UV_VERSION) \
+		.
+	@echo "Successfully built $(1)"
+endef
+
 # Push function: $(call push_image,IMAGE_NAME,DESCRIPTION)
 define push_image
 	@echo "Pushing $(2): $(1)"
@@ -503,9 +517,25 @@ check-deps-services-template: check-lockfile-shared-models check-lockfile-shared
 .PHONY: check-deps-mcp-template
 check-deps-mcp-template: check-lockfile-shared-models
 
+# Sync A2A agent cards from a2a-* directories to both agent-service config and helm
+.PHONY: sync-a2a-cards
+sync-a2a-cards:
+	@echo "Syncing A2A agent cards from a2a-* directories..."
+	@mkdir -p agent-service/config/a2a-agents
+	@mkdir -p helm/a2a-agents
+	@for dir in a2a-*/; do \
+		if [ -f "$$dir/agent_card.json" ]; then \
+			agent_name=$$(basename $$dir | sed 's/^a2a-//'); \
+			cp "$$dir/agent_card.json" "agent-service/config/a2a-agents/$${agent_name}-card.json"; \
+			echo "  Copied $$dir/agent_card.json -> agent-service/config/a2a-agents/$${agent_name}-card.json"; \
+			cp "$$dir/agent_card.json" "helm/a2a-agents/$${agent_name}-card.json"; \
+			echo "  Copied $$dir/agent_card.json -> helm/a2a-agents/$${agent_name}-card.json"; \
+		fi \
+	done
+
 # Build container images
 .PHONY: build-all-images
-build-all-images: build-request-mgr-image build-agent-service-image build-integration-dispatcher-image build-mcp-snow-image build-mock-eventing-image build-mock-servicenow-image build-promptguard-image
+build-all-images: build-request-mgr-image build-agent-service-image build-integration-dispatcher-image build-mcp-snow-image build-mock-eventing-image build-mock-servicenow-image build-promptguard-image build-all-a2a-agents
 	@echo "All container images built successfully!"
 
 
@@ -515,7 +545,7 @@ build-request-mgr-image: check-lockfile-request-manager check-deps-services-temp
 	$(call build_template_image,$(REQUEST_MGR_IMG),request manager image,Containerfile.services-template,request-manager,request_manager.main,.)
 
 .PHONY: build-agent-service-image
-build-agent-service-image: check-lockfile-agent-service check-deps-services-template
+build-agent-service-image: sync-a2a-cards check-lockfile-agent-service check-deps-services-template
 	$(call build_template_image,$(AGENT_SERVICE_IMG),agent service image,Containerfile.services-template,agent-service,agent_service.main,.)
 
 .PHONY: build-integration-dispatcher-image
@@ -540,7 +570,7 @@ build-mock-servicenow-image: check-lockfile-mock-servicenow check-deps-services-
 
 # Push container images
 .PHONY: push-all-images
-push-all-images: push-request-mgr-image push-agent-service-image push-integration-dispatcher-image push-mcp-snow-image push-mock-eventing-image push-mock-servicenow-image push-promptguard-image
+push-all-images: push-request-mgr-image push-agent-service-image push-integration-dispatcher-image push-mcp-snow-image push-mock-eventing-image push-mock-servicenow-image push-promptguard-image push-all-a2a-agents
 	@echo "All container images pushed successfully!"
 
 
@@ -573,6 +603,23 @@ push-mock-servicenow-image:
 .PHONY: push-promptguard-image
 push-promptguard-image:
 	$(call push_image,$(PROMPTGUARD_IMG) $(PUSH_EXTRA_AGRS),PromptGuard service image)
+
+# A2A Agent Images
+.PHONY: build-a2a-laptop-refresh-policy-agent
+build-a2a-laptop-refresh-policy-agent: sync-a2a-cards
+	$(call build_a2a_agent,$(A2A_LAPTOP_REFRESH_POLICY_IMG),A2A Laptop Refresh Policy Agent,a2a-laptop-refresh-policy-agent,laptop_refresh_policy_agent.main)
+
+.PHONY: push-a2a-laptop-refresh-policy-agent
+push-a2a-laptop-refresh-policy-agent:
+	$(call push_image,$(A2A_LAPTOP_REFRESH_POLICY_IMG) $(PUSH_EXTRA_AGRS),A2A Laptop Refresh Policy Agent image)
+
+.PHONY: build-all-a2a-agents
+build-all-a2a-agents: build-a2a-laptop-refresh-policy-agent
+	@echo "All A2A agent images built successfully!"
+
+.PHONY: push-all-a2a-agents
+push-all-a2a-agents: push-a2a-laptop-refresh-policy-agent
+	@echo "All A2A agent images pushed successfully!"
 
 # Code quality
 .PHONY: lint
@@ -1336,7 +1383,7 @@ endef
 PROMPT_OVERRIDES := $(foreach var,$(filter LG_PROMPT_%,$(.VARIABLES)),--set requestManagement.agentService.promptOverrides.lg-prompt-$(shell echo $(var:LG_PROMPT_%=%) | tr '[:upper:]' '[:lower:]' | tr '_' '-')=$($(var)))
 
 .PHONY: helm-install-test
-helm-install-test: namespace helm-depend
+helm-install-test: sync-a2a-cards namespace helm-depend
 	$(call helm_install_common,"with mock eventing service - testing/CI",\
 		-f helm/values-test.yaml \
 		--set requestManagement.knative.mockEventing.enabled=true \
@@ -1347,7 +1394,7 @@ helm-install-test: namespace helm-depend
 
 # Install with full Knative eventing (production mode)
 .PHONY: helm-install-prod
-helm-install-prod: namespace helm-depend
+helm-install-prod: sync-a2a-cards namespace helm-depend
 	@echo "Installing with retry logic for triggers..."
 	@for i in 1 2 3; do \
 		echo "Attempt $$i of 3..."; \

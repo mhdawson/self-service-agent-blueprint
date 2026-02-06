@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 import yaml
 from agent_service.utils import create_async_llamastack_client
+from agent_service.a2a_agent_manager import A2AAgentManager
 from opentelemetry.propagate import inject
 from shared_models import configure_logging
 from tracing_config.auto_tracing import tracingIsActive
@@ -11,6 +12,22 @@ from tracing_config.auto_tracing import tracingIsActive
 from .util import load_config_from_path, resolve_agent_service_path
 
 logger = configure_logging("agent-service")
+
+# NOTE: The send_to_agent function tool is defined but LlamaStack Responses API
+# may require custom tool execution handling since it's not an MCP tool.
+# If the LLM cannot invoke send_to_agent, we'll need to add a tool execution loop
+# in create_response() that intercepts function calls and executes them.
+
+# Singleton A2A agent manager (shared across all agents)
+_a2a_agent_manager: Optional[A2AAgentManager] = None
+
+
+def get_a2a_agent_manager() -> A2AAgentManager:
+    """Get or create the singleton A2A agent manager."""
+    global _a2a_agent_manager
+    if _a2a_agent_manager is None:
+        _a2a_agent_manager = A2AAgentManager()
+    return _a2a_agent_manager
 
 
 class Agent:
@@ -71,11 +88,25 @@ class Agent:
             self.config.get("ignored_output_shield_categories", [])
         )
 
+        # Load A2A agent configuration
+        self.a2a_agent_names = self.config.get("a2a_agents", [])
+        if self.a2a_agent_names:
+            # Initialize the A2A agent manager (singleton)
+            self.a2a_manager = get_a2a_agent_manager()
+            logger.info(
+                "A2A agents configured for agent",
+                agent_name=agent_name,
+                a2a_agents=self.a2a_agent_names,
+            )
+        else:
+            self.a2a_manager = None
+
         logger.info(
             "Initialized Agent",
             agent_name=agent_name,
             model="deferred" if self.model is None else self.model,
             tool_count="deferred" if self.tools is None else len(self.tools),
+            a2a_agent_count=len(self.a2a_agent_names),
         )
         if self.input_shields:
             logger.info("Input shields configured", shields=self.input_shields)
@@ -191,6 +222,87 @@ class Agent:
             )
             return None  # Return None instead of fallback to avoid invalid vector store usage
 
+    def _build_send_to_agent_tool(self) -> Optional[dict]:
+        """Build send_to_agent tool with dynamically populated agent descriptions.
+
+        Returns:
+            Function tool definition with available agents, or None if no agents configured
+        """
+        if not self.a2a_manager or not self.a2a_agent_names:
+            return None
+
+        # Build description with available agents from agent cards
+        agent_descriptions = []
+        agent_names = []
+
+        for agent_name in self.a2a_agent_names:
+            agent_card = self.a2a_manager.get_agent_card(agent_name)
+            if not agent_card:
+                logger.warning(
+                    "Agent card not found for configured A2A agent",
+                    agent_name=agent_name,
+                )
+                continue
+
+            agent_names.append(agent_name)
+
+            # Build description from agent card
+            desc = f"- {agent_name}: {agent_card.description}"
+
+            # Add skills information if available
+            if agent_card.skills and len(agent_card.skills) > 0:
+                skill_descs = []
+                for skill in agent_card.skills:
+                    skill_desc = f"{skill.name}"
+                    if skill.description:
+                        skill_desc += f" - {skill.description}"
+                    skill_descs.append(skill_desc)
+                desc += f"\n  Skills: {'; '.join(skill_descs)}"
+
+            agent_descriptions.append(desc)
+
+        if not agent_descriptions:
+            logger.warning("No valid A2A agent cards found")
+            return None
+
+        # Build the send_to_agent tool definition using FLAT Responses API format
+        # NOTE: Responses API uses flat structure (not nested like Chat Completions API)
+        tool = {
+            "type": "function",
+            "name": "send_to_agent",  # At same level as 'type', not nested in 'function'
+            "description": f"""Send a query to another specialized agent and get a response.
+
+Available agents:
+{chr(10).join(agent_descriptions)}
+
+Use this tool when you need to query information from these specialized agents.""",
+            "parameters": {  # At same level as 'type', not nested in 'function'
+                "type": "object",
+                "properties": {
+                    "agent_name": {
+                        "type": "string",
+                        "enum": agent_names,
+                        "description": "Name of the agent to query"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "The question or request to send to the agent"
+                    }
+                },
+                "required": ["agent_name", "query"],
+                "additionalProperties": False
+            },
+            "strict": True  # Enable strict schema validation
+        }
+
+        logger.info(
+            "Built send_to_agent tool",
+            available_agents=agent_names,
+            tool_structure=tool,  # Debug: log full tool structure
+        )
+
+        return tool
+
     async def _get_mcp_tools_to_use(
         self,
         mcp_server_configs: list[dict[str, Any]] | None = None,
@@ -208,6 +320,11 @@ class Agent:
             List of tool configurations for LlamaStack responses API
         """
         tools_to_use = []
+
+        # Add send_to_agent tool for A2A communication
+        send_to_agent_tool = self._build_send_to_agent_tool()
+        if send_to_agent_tool:
+            tools_to_use.append(send_to_agent_tool)
 
         # Add file_search tools for knowledge bases from agent config
         knowledge_bases = self.config.get("knowledge_bases", [])
@@ -717,6 +834,12 @@ class Agent:
 
             # Only pass tools if tools_to_use is not empty
             if tools_to_use:
+                # Debug: Log tools array structure before sending to LlamaStack
+                logger.debug(
+                    "Sending tools to LlamaStack",
+                    tools_array=tools_to_use,
+                )
+
                 response = await self.async_llama_client.responses.create(
                     input=messages_with_system,
                     model=self.model,
@@ -748,6 +871,126 @@ class Agent:
             if error_info:
                 logger.warning("Response error detected", error_info=error_info)
                 return ""  # Return empty to trigger retry logic
+
+            # Handle tool calls (for send_to_agent function tool)
+            # OpenAI Responses API returns function calls in response.output array
+            # LlamaStack auto-executes MCP and file_search tools, but NOT function tools
+
+            function_calls = []
+            if hasattr(response, "output") and response.output:
+                # Extract items with type='function_call' from output array
+                function_calls = [item for item in response.output if getattr(item, 'type', None) == 'function_call']
+
+            if function_calls:
+                logger.info(
+                    "Response contains function calls",
+                    function_call_count=len(function_calls),
+                )
+
+                for function_call in function_calls:
+                    # Responses API function_call fields: name, call_id, arguments
+                    if function_call.name == "send_to_agent":
+                        # Extract arguments (JSON string)
+                        import json
+                        args = json.loads(function_call.arguments) if isinstance(function_call.arguments, str) else function_call.arguments
+                        agent_name = args.get("agent_name")
+                        query = args.get("query")
+
+                        logger.info(
+                            "Executing send_to_agent function call",
+                            agent_name=agent_name,
+                            query=query[:100] if query else None,
+                            call_id=function_call.call_id,
+                        )
+
+                        # Execute the A2A call
+                        try:
+                            tool_result = await self.a2a_manager.send_to_agent(
+                                agent_name=agent_name,
+                                query=query
+                            )
+
+                            logger.info(
+                                "A2A function call completed",
+                                agent_name=agent_name,
+                                result_length=len(tool_result),
+                                result_preview=tool_result[:200] if tool_result else None,
+                            )
+
+                            # Log the full A2A agent response
+                            logger.info(
+                                "A2A agent response (full)",
+                                agent_name=agent_name,
+                                response=tool_result,
+                            )
+
+                            # Add function call output to conversation and get final response
+                            # Using Responses API format: type='function_call_output'
+                            function_output_message = {
+                                "type": "function_call_output",
+                                "call_id": function_call.call_id,
+                                "output": tool_result
+                            }
+
+                            # Log what we're sending back to the LLM
+                            logger.info(
+                                "Sending function output back to LLM",
+                                output_length=len(tool_result),
+                                function_output_message=function_output_message,
+                            )
+
+                            # Send function result back with full conversation context.
+                            # Include messages_with_system so the LLM retains the
+                            # system prompt (step instructions) when generating its response.
+                            # We must also include the function_call from the first response
+                            # so the Responses API can match function_call_output to its call.
+                            # response.output contains the function_call items from the LLM.
+                            response_output_items = list(response.output) if response.output else []
+                            final_input = messages_with_system + response_output_items + [function_output_message]
+                            final_response = await self.async_llama_client.responses.create(
+                                input=final_input,
+                                model=self.model,
+                                **response_config,
+                                tools=tools_to_use,
+                            )
+
+                            # Log what the LLM returned
+                            logger.info(
+                                "LLM final response after function call",
+                                has_output_text=hasattr(final_response, "output_text"),
+                                output_text_preview=final_response.output_text[:200] if hasattr(final_response, "output_text") and final_response.output_text else None,
+                            )
+
+                            # Extract final text response
+                            if hasattr(final_response, "output_text") and final_response.output_text:
+                                final_text = final_response.output_text
+
+                                # Log comparison between A2A result and LLM's final response
+                                # Let the user manually verify the LLM incorporated the A2A result
+                                logger.info(
+                                    "Response comparison - verify LLM used A2A result",
+                                    a2a_agent=agent_name,
+                                    a2a_result=tool_result,
+                                    llm_final_response=final_text,
+                                )
+
+                                return final_text
+                            else:
+                                # Fallback: return tool result directly
+                                logger.warning(
+                                    "No output_text in final response, returning A2A result directly",
+                                    a2a_result=tool_result,
+                                )
+                                return tool_result
+
+                        except Exception as e:
+                            logger.error(
+                                "Failed to execute send_to_agent",
+                                agent_name=agent_name,
+                                error=str(e),
+                                error_type=type(e).__name__,
+                            )
+                            return f"Error querying {agent_name}: {e}"
 
             # Extract content from LlamaStack responses API format
             response_text = ""
