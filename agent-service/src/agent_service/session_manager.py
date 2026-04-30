@@ -236,6 +236,22 @@ class ResponsesSessionManager(BaseSessionManager):
                 logger.error("Conversation session not initialized")
                 return "Error: Conversation session not initialized"
 
+            # Raw message input shield: run before the state machine sees the message
+            if self.current_agent_name and self.agent_manager:
+                agent = self.agent_manager.get_agent(self.current_agent_name)
+                if agent:
+                    is_safe, error_message = await agent.check_input_shield(text)
+                    if not is_safe:
+                        logger.info(
+                            "Input blocked by raw message shield",
+                            agent_name=self.current_agent_name,
+                            user_id=self.user_id,
+                        )
+                        return (
+                            error_message
+                            or "I apologize, but I cannot process that request due to safety concerns."
+                        )
+
             response = await self.conversation_session.send_message(
                 text,
                 token_context=token_context,

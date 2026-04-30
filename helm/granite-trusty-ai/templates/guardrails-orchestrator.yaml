@@ -1,0 +1,12 @@
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: GuardrailsOrchestrator
+metadata:
+  name: granite-guardrails-orchestrator
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  orchestratorConfig: fms-orchestr8-config-granite
+  enableBuiltInDetectors: false
+  enableGuardrailsGateway: false
+  replicas: {{ .Values.orchestrator.replicas }}

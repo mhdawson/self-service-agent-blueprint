@@ -1,0 +1,31 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: {{ .Values.graniteGuardian.modelId | base | replace "." "-" }}
+  annotations:
+    openshift.io/display-name: {{ .Values.graniteGuardian.modelId | base | replace "." "-" }}
+    serving.kserve.io/deploymentMode: RawDeployment
+    security.opendatahub.io/enable-auth: "false"
+    serving.knative.openshift.io/enablePassthrough: "true"
+    sidecar.istio.io/inject: "true"
+    sidecar.istio.io/rewriteAppHTTPProbers: "true"
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    opendatahub.io/dashboard: "true"
+    trustyai-detector: "true"
+spec:
+  predictor:
+    minReplicas: 1
+    maxReplicas: 1
+    model:
+      modelFormat:
+        name: vLLM
+      name: ""
+      runtime: granite-guardian-vllm-runtime
+      resources:
+        {{- toYaml .Values.graniteGuardian.resources | nindent 8 }}
+    tolerations:
+      - key: {{ .Values.graniteGuardian.gpuToleration }}
+        value: "true"
+        effect: NoSchedule

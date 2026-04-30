@@ -1,0 +1,67 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: granite-guardian-vllm-runtime
+  annotations:
+    opendatahub.io/apiProtocol: REST
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+    opendatahub.io/template-display-name: vLLM ServingRuntime for KServe (GPU)
+    opendatahub.io/template-name: vllm-runtime-gpu
+    openshift.io/display-name: granite-guardian-vllm-runtime
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+    serving.knative.dev/progress-deadline: 60m
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    device: gpu
+    opendatahub.io/dashboard: "true"
+spec:
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: true
+      name: vLLM
+  containers:
+    - name: kserve-container
+      image: {{ .Values.graniteGuardian.vllmImage }}
+      command: ["/bin/sh", "-c"]
+      args:
+        - >-
+          pip install git+https://github.com/foundation-model-stack/vllm-detector-adapter.git@0.9.2 --quiet --no-cache-dir &&
+          exec python3 -m vllm_detector_adapter.api_server
+          --port 8080
+          --download-dir /vllm/model
+          --model-type granite_guardian
+          --model {{ .Values.graniteGuardian.modelId }}
+          --served-model-name {{ .Values.graniteGuardian.modelId }}
+          --dtype bfloat16
+          --quantization fp8
+          --max-model-len 8192
+      env:
+        - name: HOME
+          value: /vllm
+        - name: HF_HUB_OFFLINE
+          value: "0"
+        - name: VLLM_SKIP_WARMUP
+          value: "true"
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: huggingface-secret
+              key: HF_TOKEN
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      volumeMounts:
+        - mountPath: /dev/shm
+          name: shm
+        - mountPath: /vllm
+          name: vllm-home
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 2Gi
+    - name: vllm-home
+      persistentVolumeClaim:
+        claimName: granite-guardian-model-cache

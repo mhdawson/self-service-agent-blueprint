@@ -48,15 +48,18 @@ class Agent:
         # Check if SAFETY environment variables are configured
         safety_model = os.getenv("SAFETY")
         safety_url = os.getenv("SAFETY_URL")
-        shields_available = bool(safety_model and safety_url)
+        use_trusty_ai = os.getenv("USE_TRUSTY_AI", "").lower() in ("true", "1", "yes")
+        shields_available = bool((safety_model and safety_url) or use_trusty_ai)
 
         if shields_available:
             self.input_shields = self.config.get("input_shields", [])
             self.output_shields = self.config.get("output_shields", [])
+            self.input_shield_raw_message = self.config.get("input_shield_raw_message", False)
         else:
             # Disable shields if SAFETY environment not configured
             self.input_shields = []
             self.output_shields = []
+            self.input_shield_raw_message = False
             if self.config.get("input_shields") or self.config.get("output_shields"):
                 logger.warning(
                     "Shields configured in agent but SAFETY/SAFETY_URL environment variables not set. Shields will be disabled.",
@@ -394,40 +397,45 @@ class Agent:
                 # Check if content was flagged
                 if moderation_response.results and len(moderation_response.results) > 0:
                     result = moderation_response.results[0]
+                    logger.debug(
+                        "Shield result",
+                        check_type=check_type,
+                        shield_model=shield_model,
+                        flagged=result.flagged,
+                        categories=result.categories,
+                        category_scores=result.category_scores,
+                        metadata=result.metadata,
+                    )
 
                     if result.flagged:
-                        # Check if any flagged categories are NOT in the ignored list
-                        flagged_categories = {
-                            cat
-                            for cat, is_flagged in (result.categories or {}).items()
-                            if is_flagged and cat not in ignored_categories
-                        }
+                        if result.categories:
+                            # Filter out ignored categories
+                            flagged_categories = {
+                                cat
+                                for cat, is_flagged in result.categories.items()
+                                if is_flagged and cat not in ignored_categories
+                            }
+                            if not flagged_categories:
+                                # Every flagged category is in the ignored list - allow
+                                logger.info(
+                                    "Content flagged by shield but only in ignored categories",
+                                    check_type=check_type,
+                                    shield_model=shield_model,
+                                    categories=result.categories,
+                                )
+                                continue
 
-                        if flagged_categories:
-                            # Log the violation with details including full content
-                            logger.warning(
-                                "Content flagged by shield",
-                                check_type=check_type,
-                                shield_model=shield_model,
-                                categories=result.categories,
-                                scores=result.category_scores,
-                                content=repr(moderation_input),
-                            )
-
-                            # Return user-facing message
-                            user_message = (
-                                result.user_message
-                                or "I apologize, but I cannot process that request due to safety concerns."
-                            )
-                            return False, user_message
-                        else:
-                            # Only ignored categories were flagged - allow content
-                            logger.info(
-                                "Content flagged by shield but only in ignored categories",
-                                check_type=check_type,
-                                shield_model=shield_model,
-                                categories=result.categories,
-                            )
+                        # Blocked: non-ignored categories flagged, or no category
+                        # info available (e.g. TrustyAI which doesn't return categories)
+                        logger.warning(
+                            "Content flagged by shield",
+                            check_type=check_type,
+                            shield_model=shield_model,
+                            categories=result.categories,
+                            scores=result.category_scores,
+                            content=repr(moderation_input),
+                        )
+                        return False, "I apologize, but I cannot process that request due to safety concerns."
 
             except Exception as e:
                 logger.error(
@@ -442,6 +450,15 @@ class Agent:
 
         # All shields passed
         return True, None
+
+    async def check_input_shield(self, text: str) -> tuple[bool, Optional[str]]:
+        """Run the input shield on the raw user message if input_shield_raw_message is enabled.
+
+        Returns (is_safe, error_message). Always returns (True, None) if the option is disabled.
+        """
+        if not self.input_shield_raw_message or not self.input_shields:
+            return True, None
+        return await self._run_moderation_shields(text, self.input_shields, "input")
 
     async def create_response_with_retry(
         self,
@@ -660,8 +677,9 @@ class Agent:
         """
         try:
             # INPUT SHIELD: Check user input before processing
-            if self.input_shields and messages and len(messages) > 0:
-                # Check only the last message (most recent user input)
+            # Skipped when input_shield_raw_message=True since the check already
+            # ran on the raw message in session_manager before the state machine.
+            if self.input_shields and not self.input_shield_raw_message and messages and len(messages) > 0:
                 is_safe, error_message = await self._run_moderation_shields(
                     messages, self.input_shields, "input"
                 )

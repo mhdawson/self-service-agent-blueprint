@@ -101,6 +101,9 @@ endif
 MAIN_CHART_NAME := self-service-agent
 HELM_EXPORT_DIR ?= ansible/helm-export
 TOLERATIONS_TEMPLATE=[{"key":"$(1)","effect":"NoSchedule","operator":"Exists"}]
+
+GRANITE_TRUSTY_AI_CHART   ?= helm/granite-trusty-ai
+GRANITE_GUARDIAN_LLM_HOST ?= $(LLM)-predictor
 INGRESS_PREFIX := ssa
 
 # Slack Configuration - only when ENABLE_SLACK set to true
@@ -2133,6 +2136,92 @@ jaeger-undeploy:
 	@echo "✅ Jaeger removed successfully!"
 
 # Test Email Server deployment targets
+.PHONY: deploy-granite-guardrails
+deploy-granite-guardrails: namespace
+	@echo "Deploying Granite Guardian 3.1 8B + TrustyAI GuardrailsOrchestrator..."
+	@if oc get pvc granite-guardian-model-cache -n $(NAMESPACE) -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null | grep -q .; then \
+		echo "  Waiting for previous PVC to finish terminating..."; \
+		oc wait --for=delete pvc/granite-guardian-model-cache -n $(NAMESPACE) --timeout=120s; \
+	fi
+	@if ! oc get pvc granite-guardian-model-cache -n $(NAMESPACE) &>/dev/null; then \
+		echo "  Creating granite-guardian-model-cache PVC..."; \
+		printf 'apiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: granite-guardian-model-cache\nspec:\n  accessModes:\n  - ReadWriteOnce\n  resources:\n    requests:\n      storage: 40Gi\n' | oc apply -n $(NAMESPACE) -f -; \
+	fi
+	@helm upgrade --install granite-trusty-ai $(GRANITE_TRUSTY_AI_CHART) \
+		-n $(NAMESPACE) \
+		--set hfToken=$(HF_TOKEN) \
+		--set orchestrator.llmServiceHostname=$(GRANITE_GUARDIAN_LLM_HOST) \
+		$(if $(SAFETY_TOLERATION),--set graniteGuardian.gpuToleration=$(SAFETY_TOLERATION),)
+	@echo "  Restarting GuardrailsOrchestrator to pick up config changes..."
+	@oc rollout restart deployment/granite-guardrails-orchestrator -n $(NAMESPACE) 2>/dev/null || true
+	@echo "Waiting for Granite Guardian InferenceService to be ready (first start downloads ~5GB)..."
+	@oc wait inferenceservice/granite-guardian-3-1-8b -n $(NAMESPACE) \
+		--for=condition=Ready --timeout=30m || \
+		(echo "❌ InferenceService not ready within 30m. Check: oc logs -n $(NAMESPACE) -l serving.kserve.io/inferenceservice=granite-guardian-3-1-8b" && exit 1)
+	@echo "Waiting for GuardrailsOrchestrator route to become available..."
+	@for i in $$(seq 1 12); do \
+		ROUTE=$$(oc get route granite-guardrails-orchestrator -n $(NAMESPACE) -o jsonpath='{.spec.host}' 2>/dev/null); \
+		if [ -n "$$ROUTE" ]; then \
+			echo ""; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo "Granite Guardian + TrustyAI deployed successfully"; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo ""; \
+			echo "  GuardrailsOrchestrator: https://$$ROUTE"; \
+			echo ""; \
+			echo "Next step: deploy the quickstart, then run:"; \
+			echo "  make patch-llamastack-trustyai NAMESPACE=$(NAMESPACE)"; \
+			echo ""; \
+			break; \
+		fi; \
+		sleep 10; \
+	done
+
+.PHONY: patch-llamastack-trustyai
+patch-llamastack-trustyai:
+	@echo "Patching LlamaStack to use TrustyAI (trustyai_fms) safety provider..."
+	@ORCHESTRATOR_ROUTE=$$(oc get route granite-guardrails-orchestrator -n $(NAMESPACE) -o jsonpath='{.spec.host}' 2>/dev/null); \
+	if [ -z "$$ORCHESTRATOR_ROUTE" ]; then \
+		echo "❌ GuardrailsOrchestrator route not found. Run: make deploy-granite-guardrails NAMESPACE=$(NAMESPACE)"; \
+		exit 1; \
+	fi; \
+	echo "  Orchestrator route confirmed: https://$$ORCHESTRATOR_ROUTE"; \
+	NAMESPACE=$(NAMESPACE) python3 scripts/patch-llamastack-trustyai.py
+	@echo "  Restarting LlamaStack (init container will install trustyai_fms package)..."
+	@oc rollout restart deployment/llamastack -n $(NAMESPACE)
+	@oc rollout status deployment/llamastack -n $(NAMESPACE) --timeout=10m
+	@echo "  Waiting for agent-service rollout..."
+	@oc rollout status deployment/self-service-agent-agent-service -n $(NAMESPACE) --timeout=5m
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "LlamaStack patched — granite-guardian shield registers on each startup"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "NOTE: Re-run this target after any helm-install or helm-upgrade."
+	@echo ""
+
+.PHONY: unpatch-llamastack-trustyai
+unpatch-llamastack-trustyai:
+	@echo "Reverting LlamaStack safety provider to inline::llama-guard..."
+	@NAMESPACE=$(NAMESPACE) python3 scripts/unpatch-llamastack-trustyai.py
+	@echo "  Restarting LlamaStack..."
+	@oc rollout restart deployment/llamastack -n $(NAMESPACE)
+	@oc rollout status deployment/llamastack -n $(NAMESPACE) --timeout=5m
+	@echo "  Waiting for agent-service rollout..."
+	@oc rollout status deployment/self-service-agent-agent-service -n $(NAMESPACE) --timeout=5m
+	@echo "LlamaStack reverted to inline::llama-guard"
+
+.PHONY: undeploy-granite-guardrails
+undeploy-granite-guardrails:
+	@echo "Removing Granite Guardian + TrustyAI GuardrailsOrchestrator..."
+	@$(MAKE) unpatch-llamastack-trustyai NAMESPACE=$(NAMESPACE)
+	@helm uninstall granite-trusty-ai -n $(NAMESPACE) --ignore-not-found 2>/dev/null || true
+	@if oc get pvc granite-guardian-model-cache -n $(NAMESPACE) &>/dev/null; then \
+		echo "  Deleting model cache PVC (waiting for full removal)..."; \
+		oc delete pvc granite-guardian-model-cache -n $(NAMESPACE) --wait=true; \
+	fi
+	@echo "Granite Guardian undeployed."
+
 .PHONY: deploy-email-server
 deploy-email-server: namespace
 	@echo "Deploying test email server (Greenmail + Custom UI) to namespace $(NAMESPACE)..."

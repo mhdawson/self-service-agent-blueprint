@@ -1,0 +1,5 @@
+apiVersion: v2
+name: granite-trusty-ai
+description: Granite Guardian 3.1 2B deployed via TrustyAI GuardrailsOrchestrator on OpenShift AI
+type: application
+version: 0.1.0
