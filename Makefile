@@ -102,6 +102,7 @@ MAIN_CHART_NAME := self-service-agent
 HELM_EXPORT_DIR ?= ansible/helm-export
 TOLERATIONS_TEMPLATE=[{"key":"$(1)","effect":"NoSchedule","operator":"Exists"}]
 INGRESS_PREFIX := ssa
+NEMO_GUARDRAILS_CHART ?= helm/nemo-guardrails
 
 # Slack Configuration - only when ENABLE_SLACK set to true
 ifeq ($(ENABLE_SLACK),true)
@@ -2224,3 +2225,76 @@ servicenow-bootstrap-create-evaluation-users:
 	@echo "Creating evaluation users..."
 	@cd scripts/servicenow-bootstrap && uv run python -m servicenow_bootstrap.create_evaluation_users
 	@echo "Evaluation users creation completed successfully!"
+
+# NeMo Guardrails deployment targets
+.PHONY: deploy-nemo-guardrails
+deploy-nemo-guardrails: namespace
+	@echo "Deploying NeMo Guardrails + NemoGuard JailbreakDetect NIM..."
+	@if ! oc get crd nemoguardrails.trustyai.opendatahub.io &>/dev/null; then \
+		echo "❌ NemoGuardrails CRD not found. Ensure RHOAI 3.3+ is installed with the TrustyAI operator enabled."; \
+		exit 1; \
+	fi
+	@helm upgrade --install nemo-guardrails $(NEMO_GUARDRAILS_CHART) \
+		-n $(NAMESPACE) \
+		--set ngcApiKey=$(NGC_API_KEY) \
+		--set llm.serviceHostname=$(LLM)-predictor \
+		--set llm.modelId=$(LLM_ID) \
+		$(if $(LLM_URL),--set llm.url='$(LLM_URL)',) \
+		$(if $(LLM_API_TOKEN),--set llm.apiToken='$(LLM_API_TOKEN)',) \
+		$(if $(SAFETY_TOLERATION),--set jailbreakDetect.gpuToleration=$(SAFETY_TOLERATION),)
+	@echo "Waiting for NemoGuard JailbreakDetect to be ready (pulls model from NGC on first start)..."
+	@oc rollout status deployment/nemoguard-jailbreakdetect -n $(NAMESPACE) --timeout=15m || \
+		(echo "❌ NemoGuard JailbreakDetect not ready. Check: oc logs -n $(NAMESPACE) deployment/nemoguard-jailbreakdetect" && exit 1)
+	@echo "Waiting for NemoGuardrails CR to be ready..."
+	@oc wait nemoguardrails/nemo-guardrails -n $(NAMESPACE) \
+		--for=condition=Ready --timeout=5m 2>/dev/null || \
+		echo "  (NemoGuardrails CR ready check skipped — verify manually with: oc get nemoguardrails -n $(NAMESPACE))"
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "NeMo Guardrails deployed successfully"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@NEMO_SVC=$$(oc get service -n $(NAMESPACE) -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | grep -i nemo | grep -iv jailbreak | head -1); \
+	if [ -n "$$NEMO_SVC" ]; then \
+		echo "  NeMo Guardrails service: $$NEMO_SVC"; \
+	fi
+	@echo ""
+	@echo "Next step: patch LlamaStack to route LLM calls through NeMo Guardrails:"
+	@echo "  make patch-llamastack-nemo NAMESPACE=$(NAMESPACE) LLM=$(LLM)"
+	@echo ""
+
+.PHONY: patch-llamastack-nemo
+patch-llamastack-nemo:
+	@echo "Patching LlamaStack to use NeMo Guardrails as LLM endpoint..."
+	@NAMESPACE=$(NAMESPACE) python3 scripts/patch-llamastack-nemo.py
+	@echo "Restarting LlamaStack..."
+	@oc rollout restart deployment/llamastack -n $(NAMESPACE)
+	@oc rollout status deployment/llamastack -n $(NAMESPACE) --timeout=10m
+	@echo "Waiting for agent-service rollout..."
+	@oc rollout status deployment/self-service-agent-agent-service -n $(NAMESPACE) --timeout=5m
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "LlamaStack patched — jailbreak detection active via NeMo Guardrails"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+
+.PHONY: unpatch-llamastack-nemo
+unpatch-llamastack-nemo:
+	@echo "Reverting LlamaStack LLM endpoint to direct LLM URL..."
+	@NAMESPACE=$(NAMESPACE) python3 scripts/unpatch-llamastack-nemo.py
+	@echo "Restarting LlamaStack..."
+	@oc rollout restart deployment/llamastack -n $(NAMESPACE)
+	@oc rollout status deployment/llamastack -n $(NAMESPACE) --timeout=5m
+	@oc rollout status deployment/self-service-agent-agent-service -n $(NAMESPACE) --timeout=5m
+	@echo "LlamaStack reverted to direct LLM endpoint."
+
+.PHONY: undeploy-nemo-guardrails
+undeploy-nemo-guardrails:
+	@echo "Removing NeMo Guardrails..."
+	@$(MAKE) unpatch-llamastack-nemo NAMESPACE=$(NAMESPACE) LLM=$(LLM) 2>/dev/null || true
+	@helm uninstall nemo-guardrails -n $(NAMESPACE) --ignore-not-found 2>/dev/null || true
+	@if oc get pvc nemoguard-jailbreakdetect-cache -n $(NAMESPACE) &>/dev/null; then \
+		echo "  Deleting NIM model cache PVC..."; \
+		oc delete pvc nemoguard-jailbreakdetect-cache -n $(NAMESPACE) --wait=true; \
+	fi
+	@echo "NeMo Guardrails undeployed."
